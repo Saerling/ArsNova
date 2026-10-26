@@ -1,3 +1,6 @@
 -keepattributes *Annotation*, InnerClasses
 -keep,includedescriptorclasses class com.arsnova.**$$serializer { *; }
 -keepclassmembers class com.arsnova.** { *** Companion; kotlinx.serialization.KSerializer serializer(...); }
+-dontwarn com.google.protobuf.**
+-keep class com.google.mediapipe.** { *; }
+-keep class com.google.protobuf.** { *; }
