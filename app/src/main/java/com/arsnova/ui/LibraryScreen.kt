@@ -7,7 +7,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,9 +26,9 @@ import com.arsnova.data.Template
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import java.text.DateFormat
 import java.util.Date
 
@@ -70,19 +70,19 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = { Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SmallFloatingActionButton({ pick.launch(arrayOf("application/pdf")) }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Icon(androidx.compose.material.icons.Icons.Outlined.PictureAsPdf, "Importar PDF") }
-            ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Outlined.Add, null) },
+                Icon(androidx.compose.material.icons.Icons.Rounded.PictureAsPdf, "Importar PDF") }
+            ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) },
                 text = { Text("Nueva nota") }, shape = RoundedCornerShape(50), containerColor = MaterialTheme.colorScheme.onSurface, contentColor = MaterialTheme.colorScheme.surface)
         } },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp).weight(1f))
-                IconButton(onSettings, Modifier.padding(top = 16.dp, end = 12.dp)) { Icon(androidx.compose.material.icons.Icons.Outlined.Settings, "Ajustes") }
+                IconButton(onSettings, Modifier.padding(top = 16.dp, end = 12.dp)) { Icon(androidx.compose.material.icons.Icons.Rounded.Settings, "Ajustes") }
             }
             Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
             OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(50),
-                placeholder = { Text("Buscar en títulos y escritura a mano") }, colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f), unfocusedBorderColor = Color.Transparent), leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null) })
+                placeholder = { Text("Buscar en títulos y escritura a mano") }, colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f), unfocusedBorderColor = Color.Transparent), leadingIcon = { Icon(androidx.compose.material.icons.Icons.Rounded.Search, null) })
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (listOf("") + folders).forEach { f -> val on = f == folder
                     Box(Modifier.clip(RoundedCornerShape(50)).background(if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f))

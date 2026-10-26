@@ -7,9 +7,9 @@ import android.os.Build
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,14 +69,14 @@ fun AudioBar(a: AudioCtl, recs: List<Rec>) {
         Column(Modifier.padding(12.dp, 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (recs.isEmpty()) "Sin grabaciones" else "Toca un trazo para oír ese momento", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                IconButton({ a.pause(); a.open = false }) { Icon(Icons.Outlined.Close, "Cerrar") }
+                IconButton({ a.pause(); a.open = false }) { Icon(Icons.Rounded.Close, "Cerrar") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 recs.forEachIndexed { i, r -> FilterChip(a.current == r, { a.select(r) }, { Text("${i + 1} · ${r.dur / 60000}:${"%02d".format(r.dur / 1000 % 60)}") }) }
             }
             a.current?.let { r ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ if (a.playing) a.pause() else a.play() }) { Icon(if (a.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, null) }
+                    IconButton({ if (a.playing) a.pause() else a.play() }) { Icon(if (a.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null) }
                     Slider(a.pos.toFloat(), { a.seek(it.toLong()) }, valueRange = 0f..r.dur.toFloat().coerceAtLeast(1f), modifier = Modifier.weight(1f))
                 }
             }

@@ -11,11 +11,11 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.BorderColor
-import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.Gesture
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.BorderColor
+import androidx.compose.material.icons.rounded.Draw
+import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,12 +62,12 @@ fun ToolWheel(
             .graphicsLayer { scaleX = anim.value; scaleY = anim.value; alpha = ((anim.value - 0.4f) / 0.6f).coerceIn(0f, 1f) }) {
             Surface(Modifier.fillMaxSize(), shape = CircleShape, shadowElevation = 16.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)) {}
             val outer: List<Triple<ImageVector, Boolean, () -> Unit>> = listOf(
-                Triple(Icons.Outlined.Draw, tool == Tool.PEN) { onTool(Tool.PEN) },
-                Triple(Icons.Outlined.BorderColor, tool == Tool.HIGHLIGHTER) { onTool(Tool.HIGHLIGHTER) },
+                Triple(Icons.Rounded.Draw, tool == Tool.PEN) { onTool(Tool.PEN) },
+                Triple(Icons.Rounded.BorderColor, tool == Tool.HIGHLIGHTER) { onTool(Tool.HIGHLIGHTER) },
                 Triple(EraserIcon, tool == Tool.ERASER) { onTool(Tool.ERASER) },
-                Triple(Icons.Outlined.Gesture, tool == Tool.LASSO) { onTool(Tool.LASSO) },
-                Triple(Icons.AutoMirrored.Outlined.Redo, false, onRedo),
-                Triple(Icons.AutoMirrored.Outlined.Undo, false, onUndo),
+                Triple(Icons.Rounded.Gesture, tool == Tool.LASSO) { onTool(Tool.LASSO) },
+                Triple(Icons.AutoMirrored.Rounded.Redo, false, onRedo),
+                Triple(Icons.AutoMirrored.Rounded.Undo, false, onUndo),
             )
             outer.forEachIndexed { i, (icon, on, act) ->
                 val a = Math.toRadians(-90.0 + i * 60.0)

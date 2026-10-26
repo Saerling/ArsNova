@@ -16,8 +16,15 @@ import kotlin.math.hypot
 /** Lienzo de tinta: caché en bitmap, entrada con puntos históricos, rechazo de palma, zoom/paneo. */
 @SuppressLint("ViewConstructor")
 class InkView(context: Context) : View(context) {
-    var page: Page? = null
-        set(v) { if (field === v) return; field = v; sel.clear(); selIt.clear(); curN = 0; mode = Mode.NONE; fitted = false; cacheDirty = true; invalidate(); notifyState() }
+    /** Todas las páginas en un rollo vertical continuo. */
+    var pages: List<Page> = emptyList()
+        set(v) { if (field === v) return; field = v; page = v.firstOrNull(); pageOy = 0f; sel.clear(); selIt.clear(); curN = 0; mode = Mode.NONE
+            fitted = false; hadFit = false; undoStack.clear(); redoStack.clear(); dropCache(); invalidate(); notifyState() }
+    var page: Page? = null; private set
+    private var pageOy = 0f
+    var onPage: (Int) -> Unit = {}
+    var onNeedPage: () -> Unit = {}
+    private var reported = -1; private var hadFit = false
     var tool = Tool.PEN
         set(v) { if (field == v) return; if (v != Tool.LASSO) clearSelection(); field = v; invalidate() }
     var color = 0xFF1D1B18.toInt()
@@ -48,6 +55,7 @@ class InkView(context: Context) : View(context) {
     private var predN = 0
 
     private sealed class Op {
+        var pg: Page? = null
         class Add(val s: Stroke) : Op()
         class Remove(val items: List<Pair<Int, Stroke>>, val its: List<Pair<Int, Item>> = emptyList()) : Op()
         class Move(val s: List<Stroke>, val its: List<Item>, val dx: Float, val dy: Float) : Op()
@@ -56,16 +64,23 @@ class InkView(context: Context) : View(context) {
         class Resize(val it: Item, val ow: Float, val oh: Float, val nw: Float, val nh: Float) : Op()
         class Recolor(val s: List<Stroke>, val old: IntArray, val new: IntArray) : Op()
     }
-    private val undoMap = HashMap<Long, ArrayDeque<Op>>()
-    private val redoMap = HashMap<Long, ArrayDeque<Op>>()
-    private fun undos() = undoMap.getOrPut(page!!.id) { ArrayDeque() }
-    private fun redos() = redoMap.getOrPut(page!!.id) { ArrayDeque() }
+    private val undoStack = ArrayDeque<Op>(); private val redoStack = ArrayDeque<Op>()
+    private fun undos() = undoStack
+    private fun redos() = redoStack
 
     private val matrix = Matrix(); private val inv = Matrix(); private val cacheMatrix = Matrix(); private val tmp = Matrix()
     private var scale = 1f; private var tx = 0f; private var ty = 0f; private var fitted = false
-    private var cache: Bitmap? = null; private var cacheDirty = true
+    private class PC(val bmp: Bitmap, val res: Float) { var valid = false }
+    private val pcache = HashMap<Long, PC>()
+    /** Escribir true invalida las páginas cacheadas (se re-renderizan solo las visibles). */
+    private var cacheDirty: Boolean
+        get() = false
+        set(v) { if (v) for (pc in pcache.values) pc.valid = false }
+    private fun dropCache() { pcache.values.forEach { it.bmp.recycle() }; pcache.clear() }
+    private val scroller = android.widget.OverScroller(context)
+    private var vt: android.view.VelocityTracker? = null
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val shadow = Paint().apply { color = 0x22000000; maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL) }
+    private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x14000000 }
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFD9481F.toInt(); strokeWidth = 2f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
@@ -142,13 +157,13 @@ class InkView(context: Context) : View(context) {
 
     var topInset = 0f
     fun addSticker(e: String) {
-        val p = page ?: return; val c = toPage(width / 2f, height / 2f)
+        activateAt(height / 2f); val p = page ?: return; val c = toPage(width / 2f, height / 2f)
         val it = Item(System.nanoTime(), 0, c[0] - 90f, c[1] - 90f, 220f, text = e, size = 150f)
         p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
     }
 
     fun addImage(file: String, bw: Int, bh: Int) {
-        val p = page ?: return
+        activateAt(height / 2f); val p = page ?: return
         val c = toPage(width / 2f, height / 2f); val w = minOf(700f, Ink.PAGE_W * 0.6f); val h = w * bh / bw
         val it = Item(System.nanoTime(), 1, c[0] - w / 2, c[1] - h / 2, w, h, file = file)
         p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
@@ -161,7 +176,7 @@ class InkView(context: Context) : View(context) {
 
     // ---------- ops ----------
     private fun apply(op: Op) {
-        val p = page!!
+        val p = op.pg ?: page!!
         when (op) {
             is Op.Add -> p.strokes.add(op.s)
             is Op.Remove -> { op.items.forEach { p.strokes.remove(it.second) }; op.its.forEach { p.items.remove(it.second) } }
@@ -173,7 +188,7 @@ class InkView(context: Context) : View(context) {
         }
     }
     private fun revert(op: Op) {
-        val p = page!!
+        val p = op.pg ?: page!!
         when (op) {
             is Op.Add -> p.strokes.remove(op.s)
             is Op.Remove -> { op.items.asReversed().forEach { (i, s) -> p.strokes.add(i.coerceAtMost(p.strokes.size), s) }
@@ -185,39 +200,89 @@ class InkView(context: Context) : View(context) {
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.old[i] }
         }
     }
-    private fun push(op: Op) { val u = undos(); u.addLast(op); if (u.size > 300) u.removeFirst(); redos().clear(); notifyState() }
+    private fun push(op: Op) { if (op.pg == null) op.pg = page; val u = undos(); u.addLast(op); if (u.size > 300) u.removeFirst(); redos().clear(); notifyState() }
     private fun after() { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState(); onChange() }
     private fun notifyState() { if (page != null) onState(undos().isNotEmpty(), redos().isNotEmpty(), hasSelection()) }
     private fun clearSelection() { if (hasSelection()) { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState() } }
 
     // ---------- transform ----------
     private fun updateMatrix() { matrix.setScale(scale, scale); matrix.postTranslate(tx, ty); matrix.invert(inv) }
+    private val gap = 44f
+    private fun top(i: Int) = i * (Ink.PAGE_H + gap)
+    private fun contentH() = (pages.size * (Ink.PAGE_H + gap) - gap).coerceAtLeast(Ink.PAGE_H)
+    private fun dp(v: Float) = v * resources.displayMetrics.density
     private fun doFit() {
-        val m = 16f * resources.displayMetrics.density
+        val m = dp(16f); val cy = if (hadFit) (height / 2f - ty) / scale else -1f
         scale = ((width - 2 * m) / Ink.PAGE_W).coerceAtMost((height * 1.6f) / Ink.PAGE_H).coerceAtLeast(0.1f)
-        tx = (width - Ink.PAGE_W * scale) / 2; ty = m + topInset; updateMatrix(); fitted = true
+        tx = (width - Ink.PAGE_W * scale) / 2; ty = if (cy >= 0) height / 2f - cy * scale else m + topInset
+        clamp(); updateMatrix(); fitted = true; hadFit = true
     }
-    private fun toPage(x: Float, y: Float): FloatArray { pt[0] = x; pt[1] = y; inv.mapPoints(pt); return pt }
-    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { cache?.recycle(); cache = null; if (!fitted || ow == 0) fitted = false; cacheDirty = true }
+    private fun clamp() {
+        val m = dp(16f); val w = Ink.PAGE_W * scale
+        tx = if (w <= width) (width - w) / 2 else tx.coerceIn(width - w - m, m)
+        val maxTy = topInset + m; val minTy = (height - contentH() * scale - dp(130f)).coerceAtMost(maxTy)
+        ty = ty.coerceIn(minTy, maxTy)
+    }
+    private fun toPage(x: Float, y: Float): FloatArray { pt[0] = x; pt[1] = y; inv.mapPoints(pt); pt[1] -= pageOy; return pt }
+    /** Activa la página bajo un punto de pantalla. */
+    private fun activateAt(sy: Float) {
+        if (pages.isEmpty()) return
+        pt[0] = 0f; pt[1] = sy; inv.mapPoints(pt)
+        val i = (pt[1] / (Ink.PAGE_H + gap)).toInt().coerceIn(0, pages.size - 1)
+        if (pages[i] !== page) { clearSelection(); page = pages[i]; pageOy = top(i); notifyState() }
+    }
+    fun pagesChanged() {
+        if (page !in pages) { clearSelection(); page = pages.firstOrNull() }
+        pageOy = top(pages.indexOf(page).coerceAtLeast(0)); clamp(); updateMatrix(); invalidate()
+    }
+    fun scrollToPage(i: Int) {
+        val target = topInset + dp(16f) - top(i) * scale; val from = ty
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply { duration = 380; interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener { ty = from + (target - from) * (it.animatedValue as Float); clamp(); updateMatrix(); invalidate() }; start() }
+    }
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) { tx = scroller.currX.toFloat(); ty = scroller.currY.toFloat(); clamp(); updateMatrix(); postInvalidateOnAnimation() }
+    }
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { fitted = false }
+    private fun targetRes() = (scale.coerceIn(0.4f, 2400f / Ink.PAGE_W) * 8).toInt() / 8f
+    private fun pageBitmap(p: Page, res: Float): Bitmap {
+        var pc = pcache[p.id]
+        if (pc == null || (res > 0 && pc.res != res)) {
+            val r = if (res > 0) res else (pc?.res ?: targetRes())
+            pc?.bmp?.recycle()
+            pc = PC(Bitmap.createBitmap((Ink.PAGE_W * r).toInt(), (Ink.PAGE_H * r).toInt(), Bitmap.Config.ARGB_8888), r); pcache[p.id] = pc
+        }
+        if (!pc.valid) {
+            val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); val on = p === page
+            Ink.drawPaper(cc, p.template, p.bg)
+            for (it in p.items) if (!on || it !in selIt) Ink.drawItem(cc, it)
+            val selSet = if (on) sel.toHashSet() else emptySet()
+            for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
+            pc.valid = true
+        }
+        return pc.bmp
+    }
 
     // ---------- draw ----------
     override fun onDraw(c: Canvas) {
-        val p = page ?: return
-        if (width == 0 || height == 0) return
+        if (pages.isEmpty() || width == 0 || height == 0) return
         if (!fitted) doFit()
-        val bmp = cache ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { cache = it; cacheDirty = true }
-        if (cacheDirty && mode != Mode.NAV) {
-            val cc = Canvas(bmp); cc.drawColor(desk); cc.save(); cc.concat(matrix)
-            cc.drawRect(0f, 6f, Ink.PAGE_W, Ink.PAGE_H + 6f, shadow)
-            Ink.drawPaper(cc, p.template, p.bg)
-            for (it in p.items) if (it !in selIt) Ink.drawItem(cc, it)
-            val selSet = sel.toHashSet()
-            for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
-            cc.restore(); cacheMatrix.set(matrix); cacheDirty = false
+        c.drawColor(desk)
+        val res = if (mode == Mode.NAV || !scroller.isFinished) -1f else targetRes()
+        val step = (Ink.PAGE_H + gap) * scale
+        val first = (-ty / step).toInt().coerceIn(0, pages.size - 1); val last = ((height - ty) / step).toInt().coerceIn(first, pages.size - 1)
+        for (i in first..last) {
+            val b = pageBitmap(pages[i], res)
+            c.save(); c.concat(matrix); c.translate(0f, top(i))
+            c.drawRoundRect(-3f, 3f, Ink.PAGE_W + 3f, Ink.PAGE_H + 9f, 10f, 10f, shadow)
+            c.drawRoundRect(-1f, 1f, Ink.PAGE_W + 1f, Ink.PAGE_H + 4f, 6f, 6f, shadow)
+            c.scale(Ink.PAGE_W / b.width, Ink.PAGE_H / b.height); c.drawBitmap(b, 0f, 0f, bmpPaint); c.restore()
         }
-        cacheMatrix.invert(tmp); tmp.postConcat(matrix)
-        c.drawColor(desk); c.drawBitmap(bmp, tmp, bmpPaint)
-        c.save(); c.concat(matrix)
+        if (pcache.size > last - first + 3) { val keep = (maxOf(0, first - 1)..minOf(pages.size - 1, last + 1)).map { pages[it].id }.toHashSet()
+            pcache.keys.filter { it !in keep }.forEach { pcache.remove(it)?.bmp?.recycle() } }
+        val center = ((height / 2f - ty) / step).toInt().coerceIn(0, pages.size - 1)
+        if (center != reported) { reported = center; post { onPage(center) } }
+        c.save(); c.concat(matrix); c.translate(0f, pageOy)
         if (hasSelection()) {
             c.save(); c.translate(selDx, selDy); selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
             dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
@@ -243,6 +308,8 @@ class InkView(context: Context) : View(context) {
     override fun onTouchEvent(e: MotionEvent): Boolean {
         page ?: return false
         predictor.record(e)
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) { scroller.forceFinished(true); vt?.recycle(); vt = android.view.VelocityTracker.obtain() }
+        vt?.addMovement(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 requestUnbufferedDispatch(e); hoverX = -1f
@@ -270,7 +337,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun begin(e: MotionEvent, i: Int) {
-        pid = e.getPointerId(i)
+        pid = e.getPointerId(i); scroller.forceFinished(true); activateAt(e.getY(i))
         val eraserBtn = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER || (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
         val t = if (eraserBtn) Tool.ERASER else tool
         val sx = e.getX(i); val sy = e.getY(i); val q = toPage(sx, sy); val x = q[0]; val y = q[1]
@@ -352,7 +419,7 @@ class InkView(context: Context) : View(context) {
                 j += 3
             }
         }
-        if (hit) cacheDirty = true
+        if (hit) pcache[p.id]?.valid = false
         invalidate()
     }
 
@@ -363,7 +430,8 @@ class InkView(context: Context) : View(context) {
             Mode.DRAW -> if (curN >= 3) {
                 val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
-                if (!cacheDirty) cache?.let { val cc = Canvas(it); cc.concat(cacheMatrix); Ink.drawStroke(cc, s) }
+                pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
+                if (p === pages.lastOrNull()) onNeedPage()
                 curN = 0; onChange()
             }
             Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() } }
@@ -452,9 +520,14 @@ class InkView(context: Context) : View(context) {
             }
             lspan = span
         }
-        lfx = fx; lfy = fy; updateMatrix(); invalidate()
+        lfx = fx; lfy = fy; clamp(); updateMatrix(); invalidate()
     }
-    private fun endNav() { cacheDirty = true; invalidate() }
+    private fun endNav() {
+        vt?.let { v -> v.computeCurrentVelocity(1000); val vx = v.xVelocity; val vy = v.yVelocity
+            if (kotlin.math.abs(vy) > 300 || kotlin.math.abs(vx) > 300)
+                scroller.fling(tx.toInt(), ty.toInt(), vx.toInt(), vy.toInt(), Int.MIN_VALUE / 2, Int.MAX_VALUE / 2, Int.MIN_VALUE / 2, Int.MAX_VALUE / 2) }
+        mode = Mode.NONE; postInvalidateOnAnimation()
+    }
 
     companion object { const val DESK = 0xFFE9E5DC.toInt() }
 }

@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -111,12 +111,6 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var boxW by remember { mutableFloatStateOf(1f) }
     var collapsed by remember { mutableStateOf(false) }
     var lastPage by remember { mutableIntStateOf(0) }
-    LaunchedEffect(pageIdx) {
-        if (pageIdx != lastPage) {
-            val d = if (pageIdx > lastPage) 1 else -1; lastPage = pageIdx
-            view.alpha = 0f; view.translationX = d * 80f
-            view.animate().alpha(1f).translationX(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
-        }
     }
     var prevSlot by remember { mutableIntStateOf(0) }
     fun onDoubleTap() {
@@ -152,6 +146,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
+        view.onPage = { pageIdx = it }
+        view.onNeedPage = { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); view.pagesChanged(); dirty++ }
         view.onInking = { inking = it; if (it) showSettings = false }
         view.onTextEdit = { it, isNew -> editing = it to isNew }
         view.tapMode = audio.open
@@ -161,7 +157,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.onStylusButton = { code ->
             if (learning) { learned = code; prefs.edit().putInt("tapCode", code).apply(); learning = false } else onDoubleTap(); true
         }
-        view.page = nb.pages[pageIdx]; view.tool = tool; view.color = color
+        view.pages = nb.pages; view.tool = tool; view.color = color
         view.desk = deskColor
         view.penWidth = if (slot.tool == Tool.PEN) slot.width else view.penWidth
         view.hlWidth = if (slot.tool == Tool.HIGHLIGHTER) slot.width else view.hlWidth
@@ -186,32 +182,30 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Pill { Text(nb.title, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), maxLines = 1, style = MaterialTheme.typography.titleMedium) } },
-                navigationIcon = { Pill(Modifier.padding(start = 8.dp)) { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Atrás") } } },
+                navigationIcon = { Pill(Modifier.padding(start = 8.dp)) { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás") } } },
                 actions = { Pill(Modifier.padding(end = 8.dp)) {
                     IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
-                        Icon(if (audio.recording) Icons.Outlined.StopCircle else Icons.Outlined.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
-                    if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(Icons.Outlined.Headphones, "Reproducir") }
-                    IconButton({ if (pageIdx > 0) pageIdx-- }, enabled = pageIdx > 0) { Icon(Icons.Outlined.ChevronLeft, "Anterior") }
+                        Icon(if (audio.recording) Icons.Rounded.StopCircle else Icons.Rounded.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
+                    if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(Icons.Rounded.Headphones, "Reproducir") }
                     TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
-                    IconButton({ if (pageIdx < nb.pages.size - 1) pageIdx++ }, enabled = pageIdx < nb.pages.size - 1) { Icon(Icons.Outlined.ChevronRight, "Siguiente") }
-                    IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "Más") }
+                    IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Más") }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); pageIdx++; dirty++; menu = false },
-                            leadingIcon = { Icon(Icons.Outlined.NoteAdd, null) })
+                        DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++; menu = false },
+                            leadingIcon = { Icon(Icons.Rounded.NoteAdd, null) })
                         if (nb.pages.size > 1) DropdownMenuItem({ Text("Eliminar página") }, {
-                            nb.pages.removeAt(pageIdx); pageIdx = pageIdx.coerceAtMost(nb.pages.size - 1); dirty++; menu = false
-                        }, leadingIcon = { Icon(Icons.Outlined.Delete, null) })
+                            nb.pages.removeAt(pageIdx); pageIdx = pageIdx.coerceAtMost(nb.pages.size - 1); view.refresh(); view.pagesChanged(); dirty++; menu = false
+                        }, leadingIcon = { Icon(Icons.Rounded.Delete, null) })
                         DropdownMenuItem({ Text("Plantilla: ${nb.pages[pageIdx].template.label()}") }, {
                             val p = nb.pages[pageIdx]; p.template = Template.entries[(p.template.ordinal + 1) % Template.entries.size]
                             view.fit(); dirty++
-                        }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) })
+                        }, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
                         DropdownMenuItem({ Text("Solo lápiz (rechazo de palma)") }, { stylusOnly = !stylusOnly },
-                            leadingIcon = { Icon(Icons.Outlined.Draw, null) }, trailingIcon = { Checkbox(stylusOnly, null) })
+                            leadingIcon = { Icon(Icons.Rounded.Draw, null) }, trailingIcon = { Checkbox(stylusOnly, null) })
                         DropdownMenuItem({ Text("Configurar doble toque del lápiz") }, { learning = true; menu = false },
-                            leadingIcon = { Icon(Icons.Outlined.TouchApp, null) })
-                        DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(Icons.Outlined.FitScreen, null) })
-                        DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) })
-                        DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) })
+                            leadingIcon = { Icon(Icons.Rounded.TouchApp, null) })
+                        DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                        DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) })
+                        DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                     }
                 } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
@@ -222,7 +216,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         SideEffect { if (view.topInset != topPx) { view.topInset = topPx; view.fit() } }
         Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
-            if (pages) PageGrid(nb, pageIdx, { pageIdx = it; pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); pageIdx = nb.pages.size - 1; dirty++; pages = false }) { pages = false }
+            if (pages) PageGrid(nb, pageIdx, { view.scrollToPage(it); pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; pages = false }) { pages = false }
             editing?.let { (item, isNew) ->
                 var txt by remember(item) { mutableStateOf(item.text) }
                 var size by remember(item) { mutableFloatStateOf(item.size) }
@@ -235,9 +229,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             listOf(28f to "S", 40f to "M", 60f to "L", 88f to "XL").forEach { (v, l) -> FilterChip(size == v, { size = v }, { Text(l) }) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                            listOf(Icons.Outlined.FormatAlignLeft, Icons.Outlined.FormatAlignCenter, Icons.Outlined.FormatAlignRight).forEachIndexed { i, ic ->
+                            listOf(Icons.Rounded.FormatAlignLeft, Icons.Rounded.FormatAlignCenter, Icons.Rounded.FormatAlignRight).forEachIndexed { i, ic ->
                                 IconToggleButton(align == i, { align = i }) { Icon(ic, null) } }
-                            IconToggleButton(bold, { bold = it }) { Icon(Icons.Outlined.FormatBold, "Negrita") }
+                            IconToggleButton(bold, { bold = it }) { Icon(Icons.Rounded.FormatBold, "Negrita") }
                         }
                     } },
                     confirmButton = { TextButton({ item.size = size; item.align = align; item.bold = bold; view.commitText(item, txt, isNew); view.refresh(); dirty++; editing = null }) { Text("Listo") } },
@@ -255,7 +249,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     text = { if (out == "…") LinearProgressIndicator(Modifier.fillMaxWidth()) else Text(out, Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) },
                     confirmButton = { if (out != "…" && !out.startsWith("Error") ) TextButton({
                         val p = Page(System.nanoTime(), Template.BLANK); p.items.add(Item(System.nanoTime(), 0, 80f, 80f, InkR.PAGE_W - 160f, text = out, size = 30f))
-                        nb.pages.add(p); pageIdx = nb.pages.size - 1; dirty++; aiOut = null }) { Text("Insertar como página") } },
+                        nb.pages.add(p); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; aiOut = null }) { Text("Insertar como página") } },
                     dismissButton = { TextButton({ aiOut = null }) { Text("Cerrar") } })
             }
             if (learning) Surface(Modifier.align(Alignment.TopCenter).padding(12.dp), shape = RoundedCornerShape(16.dp), shadowElevation = 8.dp, color = MaterialTheme.colorScheme.primary) {
@@ -296,13 +290,13 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 }
                 if (hasSel) Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 8.dp, modifier = Modifier.padding(bottom = 10.dp)) {
                     Row {
-                        TextButton(view::deleteSelection) { Icon(Icons.Outlined.Delete, null, tint = Brand); Spacer(Modifier.width(6.dp)); Text("Eliminar", color = Brand) }
+                        TextButton(view::deleteSelection) { Icon(Icons.Rounded.Delete, null, tint = Brand); Spacer(Modifier.width(6.dp)); Text("Eliminar", color = Brand) }
                         TextButton({ converting = true; scope.launch {
                             val t = com.arsnova.ink.Recognizer.recognize(view.selectedStrokes())
                             converting = false
                             if (t.isBlank()) android.widget.Toast.makeText(ctx, "No se reconoció texto (la primera vez se descarga el modelo, ~20 MB)", android.widget.Toast.LENGTH_LONG).show()
                             else view.replaceSelectionWithText(t)
-                        } }, enabled = !converting) { Icon(Icons.Outlined.TextFields, null); Spacer(Modifier.width(6.dp)); Text("A texto") }
+                        } }, enabled = !converting) { Icon(Icons.Rounded.TextFields, null); Spacer(Modifier.width(6.dp)); Text("A texto") }
                     }
                 }
             }
@@ -327,16 +321,16 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     if (dock == 0) Surface(Modifier.size(64.dp).clickable { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 10.dp)) { ToolArt(slot, true) { collapsed = false } }
                     } else Surface(Modifier.size(52.dp).clickable { collapsed = false }, shape = RoundedCornerShape(16.dp), shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.ChevronRight, "Mostrar herramientas", Modifier.graphicsLayer { rotationZ = if (dock < 0) 180f else 0f }) }
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ChevronRight, "Mostrar herramientas", Modifier.graphicsLayer { rotationZ = if (dock < 0) 180f else 0f }) }
                     }
                 } else AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
                     insertMenu = { open, close ->
                         DropdownMenu(open, close) {
-                            DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(Icons.Outlined.TextFields, null) })
-                            DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Outlined.Image, null) })
-                            DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); pageIdx++; dirty++ }, leadingIcon = { Icon(Icons.Outlined.NoteAdd, null) })
-                            DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) })
-                            DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(Icons.Outlined.EmojiEmotions, null) })
+                            DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
+                            DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Rounded.Image, null) })
+                            DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++ }, leadingIcon = { Icon(Icons.Rounded.NoteAdd, null) })
+                            DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
+                            DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(Icons.Rounded.EmojiEmotions, null) })
                         }
                     }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false }, dock = dock, handle = handle) }
             }
@@ -380,7 +374,7 @@ private fun PageGrid(nb: Notebook, cur: Int, onPick: (Int) -> Unit, onAdd: () ->
             }
             item {
                 Box(Modifier.aspectRatio(0.75f).fillMaxWidth().clip(RoundedCornerShape(6.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)).clickable { onAdd() },
-                    contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Add, "Añadir página") }
+                    contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Añadir página") }
             }
         }
     }

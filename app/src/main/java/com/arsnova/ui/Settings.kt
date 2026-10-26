@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,7 +43,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
         }
     }
 
-    Scaffold(topBar = { TopAppBar({ Text("Ajustes") }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Atrás") } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar({ Text("Ajustes") }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás") } }) }) { pad ->
         LazyColumn(Modifier.padding(pad)) {
             item { Header("Apariencia"); Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme) }
             item {

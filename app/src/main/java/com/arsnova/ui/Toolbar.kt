@@ -16,11 +16,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -137,8 +137,8 @@ fun AppleToolbar(
         Box(handle.size(if (vertical) 40.dp else 28.dp, if (vertical) 28.dp else 40.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(if (vertical) 22.dp else 4.dp, if (vertical) 4.dp else 22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)))
         }
-        IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
-        IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
+        IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Rounded.Undo, "Deshacer") }
+        IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Rehacer") }
         slots.forEachIndexed { i, s ->
             if (vertical) Box(Modifier.size(60.dp, 40.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.requiredSize(40.dp, 60.dp).graphicsLayer { rotationZ = if (dock > 0) 90f else -90f }) { ToolArt(s, i == active, label = false) { onSelect(i) } }
@@ -161,9 +161,9 @@ fun AppleToolbar(
                 }
             }
         }
-        Box { IconButton({ plus = true }) { Icon(Icons.Outlined.Add, "Insertar") }; insertMenu(plus) { plus = false } }
-        IconButton(onMore) { Icon(Icons.Outlined.MoreHoriz, "Más") }
-        IconButton(onCollapse, Modifier.size(36.dp)) { Icon(Icons.Outlined.KeyboardArrowDown, "Minimizar", tint = MaterialTheme.colorScheme.outline,
+        Box { IconButton({ plus = true }) { Icon(Icons.Rounded.Add, "Insertar") }; insertMenu(plus) { plus = false } }
+        IconButton(onMore) { Icon(Icons.Rounded.MoreHoriz, "Más") }
+        IconButton(onCollapse, Modifier.size(36.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Minimizar", tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; else -> 0f } }) }
     }
     Surface(shape = shape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f), shadowElevation = 14.dp,
@@ -179,9 +179,6 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
     Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 12.dp, modifier = Modifier.padding(bottom = 12.dp).widthIn(max = 380.dp)) {
         Column(Modifier.padding(18.dp, 14.dp)) {
             Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
-            if (s.tool == Tool.PEN) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                listOf(1, 0, 2, 3, 4, 5).forEach { st -> ToolArt(s.copy(style = st), st == s.style) { onChange(s.copy(style = st)) } }
-            }
             if (s.tool != Tool.LASSO) {
                 val mm = if (s.tool == Tool.ERASER) "${s.width.toInt()} px" else "%.2f mm".format(s.width * 0.15f)
                 Row { Text("Espesor", Modifier.weight(1f)); Text(mm, color = MaterialTheme.colorScheme.outline) }
