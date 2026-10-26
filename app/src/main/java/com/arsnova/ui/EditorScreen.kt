@@ -7,6 +7,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +91,19 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var indexed by remember { mutableIntStateOf(-1) }
     var pages by remember { mutableStateOf(false) }
     var converting by remember { mutableStateOf(false) }
+    var aiOut by remember { mutableStateOf<String?>(null) }
+    var askKey by remember { mutableStateOf(false) }
+    fun runAi() {
+        val key = prefs.getString("aiKey", null); if (key.isNullOrBlank()) { askKey = true; return }
+        aiOut = "…"
+        scope.launch {
+            val text = nb.pages.joinToString("\n\n") { p -> (if (p.ocr.isBlank()) "" else p.ocr) + p.items.joinToString("\n", "\n") { it.text } }
+                .ifBlank { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { "" } }
+            val src = if (text.isBlank()) com.arsnova.ink.Recognizer.recognize(nb.pages.flatMap { it.strokes }) else text
+            aiOut = if (src.isBlank()) "No hay texto reconocible en este cuaderno todavía."
+                else runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ai.ask(key, Ai.studyPrompt(src)) } }.getOrElse { "Error: ${it.message}" }
+        }
+    }
     // Indexa el texto manuscrito de la página actual en segundo plano (búsqueda).
     LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages[pageIdx]; val t = com.arsnova.ink.Recognizer.recognize(p.strokes.toList()); if (t != p.ocr) { p.ocr = t; save() } }
 
@@ -155,6 +170,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         DropdownMenuItem({ Text("Configurar doble toque del lápiz") }, { learning = true; menu = false },
                             leadingIcon = { Icon(Icons.Outlined.TouchApp, null) })
                         DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(Icons.Outlined.FitScreen, null) })
+                        DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) })
                         DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) })
                     }
                 },
@@ -177,6 +193,21 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     } },
                     confirmButton = { TextButton({ item.size = size; view.commitText(item, txt, isNew); editing = null }) { Text("Listo") } },
                     dismissButton = { TextButton({ editing = null }) { Text("Cancelar") } })
+            }
+            if (askKey) {
+                var k by remember { mutableStateOf("") }
+                AlertDialog({ askKey = false }, title = { Text("Clave de API de Claude") },
+                    text = { Column { Text("La IA es opcional. Tu clave se guarda solo en este dispositivo (console.anthropic.com)."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
+                    confirmButton = { TextButton({ prefs.edit().putString("aiKey", k.trim()).apply(); askKey = false; runAi() }) { Text("Guardar") } },
+                    dismissButton = { TextButton({ askKey = false }) { Text("Cancelar") } })
+            }
+            aiOut?.let { out ->
+                AlertDialog({ aiOut = null }, title = { Text("Resumen y tarjetas") },
+                    text = { if (out == "…") LinearProgressIndicator(Modifier.fillMaxWidth()) else Text(out, Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) },
+                    confirmButton = { if (out != "…" && !out.startsWith("Error") ) TextButton({
+                        val p = Page(System.nanoTime(), Template.BLANK); p.items.add(Item(System.nanoTime(), 0, 80f, 80f, InkR.PAGE_W - 160f, text = out, size = 30f))
+                        nb.pages.add(p); pageIdx = nb.pages.size - 1; dirty++; aiOut = null }) { Text("Insertar como página") } },
+                    dismissButton = { TextButton({ aiOut = null }) { Text("Cerrar") } })
             }
             if (learning) AlertDialog({ learning = false }, confirmButton = { TextButton({ learning = false }) { Text("Cancelar") } },
                 title = { Text("Doble toque") }, text = { Text("Haz doble toque en tu lápiz ahora (o pulsa su botón). ArsNova lo usará para abrir la rueda de herramientas.") })
