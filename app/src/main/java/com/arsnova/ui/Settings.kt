@@ -43,23 +43,21 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
         }
     }
 
-    Scaffold(topBar = { TopAppBar({ Text("Ajustes") }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás") } }) }) { pad ->
+    Ambient { Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar({ Text("Ajustes", style = MaterialTheme.typography.headlineLarge) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent), navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás") } }) }) { pad ->
         LazyColumn(Modifier.padding(pad)) {
-            item { Header("Apariencia"); Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme) }
+            item { Header("Apariencia"); Group {; Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme) } }
             item {
-                Header("Lápiz")
+                Header("Lápiz"); Group {
                 Toggle("Solo lápiz", "Rechazo de palma: el dedo solo mueve y hace zoom", stylus) { stylus = it; p.edit().putBoolean("stylusOnly", it).apply() }
                 Choice("Doble toque del lápiz", listOf("Rueda", "Borrador", "Deshacer", "Nada"), tapAction) { tapAction = it; p.edit().putInt("tapAction", it).apply() }
                 Text("Compatible con Huawei M-Pencil (2.ª/3.ª gen/Pro), S Pen y lápices USI. Si tu lápiz usa otro gesto, configúralo desde ⋯ en el editor.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(horizontal = 20.dp))
-            }
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(horizontal = 20.dp)) } }
             item {
-                Header("Escritura")
+                Header("Escritura"); Group {
                 Toggle("Enderezar líneas y figuras", "Mantén el trazo quieto para convertirlo en línea, círculo, rectángulo o triángulo", shapes) { shapes = it; p.edit().putBoolean("shapes", it).apply() }
-                Choice("Plantilla por defecto", listOf("Blanco", "Rayado", "Cuadrícula", "Puntos"), tpl) { tpl = it; p.edit().putInt("tpl", it).apply() }
-            }
+                Choice("Plantilla por defecto", listOf("Blanco", "Rayado", "Cuadrícula", "Puntos"), tpl) { tpl = it; p.edit().putInt("tpl", it).apply() } } }
             item {
-                Header("IA en el dispositivo")
+                Header("IA en el dispositivo"); Group {
                 var have by remember { mutableStateOf(com.arsnova.data.LocalAi.ready(ctx)) }
                 var dl by remember { mutableStateOf<Float?>(null) }
                 ListItem({ Text(com.arsnova.data.LocalAi.NAME) },
@@ -73,15 +71,13 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                             dl = null; have = com.arsnova.data.LocalAi.ready(ctx)
                             if (!ok) android.widget.Toast.makeText(ctx, "Falló la descarga", android.widget.Toast.LENGTH_SHORT).show()
                         } }, enabled = dl == null) { Text("Descargar") }
-                    })
-            }
+                    }) } }
             item {
-                Header("IA en la nube (opcional)")
+                Header("IA en la nube (opcional)"); Group {
                 OutlinedTextField(key, { key = it; p.edit().putString("aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    label = { Text("Clave de API de Claude") }, singleLine = true, supportingText = { Text("Se guarda solo en este dispositivo") })
-            }
+                    label = { Text("Clave de API de Claude") }, singleLine = true, supportingText = { Text("Se guarda solo en este dispositivo") }) } }
             item {
-                Header("Actualizaciones")
+                Header("Actualizaciones"); Group {
                 Toggle("Buscar al abrir", "Avisa cuando hay una versión nueva en GitHub", auto) { auto = it; p.edit().putBoolean("autoUpdate", it).apply() }
                 ListItem({ Text("Buscar actualización ahora") }, supportingContent = { Text("Versión instalada: ${Updater.current(ctx)}") },
                     trailingContent = { if (checking) CircularProgressIndicator(Modifier.size(20.dp)) },
@@ -89,10 +85,10 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                         val r = withContext(Dispatchers.IO) { Updater.latest() }; checking = false
                         if (r != null && r.code > Updater.current(ctx)) upd = r
                         else android.widget.Toast.makeText(ctx, if (r == null) "Sin conexión con GitHub" else "Ya tienes la última versión", android.widget.Toast.LENGTH_SHORT).show()
-                    } })
-            }
-            item { Header("Acerca de"); ListItem({ Text("ArsNova") }, supportingContent = { Text("github.com/${Updater.REPO}") }); Spacer(Modifier.height(40.dp)) }
+                    } }) } }
+            item { Header("Acerca de"); Group {; ListItem({ Text("ArsNova") }, supportingContent = { Text("github.com/${Updater.REPO}") }) }; Spacer(Modifier.height(40.dp)) }
         }
+    }
     }
     upd?.let { UpdateDialog(it) { upd = null } }
 }

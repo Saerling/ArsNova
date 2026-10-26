@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.arsnova.data.NotebookMeta
 import com.arsnova.data.Repo
 import com.arsnova.data.Template
@@ -66,8 +67,8 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
         } }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+    Ambient { Scaffold(
+        containerColor = Color.Transparent,
         floatingActionButton = { Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SmallFloatingActionButton({ pick.launch(arrayOf("application/pdf")) }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Icon(androidx.compose.material.icons.Icons.Rounded.PictureAsPdf, "Importar PDF") }
@@ -77,8 +78,8 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp).weight(1f))
-                IconButton(onSettings, Modifier.padding(top = 16.dp, end = 12.dp)) { Icon(androidx.compose.material.icons.Icons.Rounded.Settings, "Ajustes") }
+                Text("Notas", style = MaterialTheme.typography.headlineLarge.copy(fontSize = 40.sp), modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 2.dp).weight(1f))
+                Pill(Modifier.padding(top = 20.dp, end = 16.dp)) { IconButton(onSettings) { Icon(androidx.compose.material.icons.Icons.Rounded.Settings, "Ajustes") } }
             }
             Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
             OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(50),
@@ -109,6 +110,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
         }
     }
 
+    }
     if (newFolder) { var n by remember { mutableStateOf("") }
         AlertDialog({ newFolder = false }, title = { Text("Nueva carpeta") }, text = { OutlinedTextField(n, { n = it.replace("|", "") }, singleLine = true, shape = RoundedCornerShape(50)) },
             confirmButton = { TextButton({ if (n.isNotBlank()) { folders = folders + n.trim(); fp.edit().putString("folders", folders.joinToString("|")).apply(); folder = n.trim() }; newFolder = false }) { Text("Crear") } },

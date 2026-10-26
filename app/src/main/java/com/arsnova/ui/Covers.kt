@@ -16,6 +16,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import kotlin.math.sin
 
 /** Píldora translúcida (vidrio) usada en todo el sistema. */
@@ -51,4 +53,25 @@ fun CoverArt(color: Int, pattern: Int, modifier: Modifier) = Canvas(modifier) {
     }
     drawRect(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.28f), Color.Transparent), 0f, w * 0.12f))
     drawLine(Color.White.copy(alpha = 0.25f), Offset(w * 0.085f, 0f), Offset(w * 0.085f, h), 1.5f)
+}
+
+/** Fondo editorial cálido con luces ambientales suaves (para que el vidrio tenga algo detrás). */
+@Composable
+fun Ambient(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val bg = MaterialTheme.colorScheme.background; val dark = bg.luminance() < 0.3f
+    androidx.compose.foundation.layout.Box(modifier.background(bg)) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(Brush.radialGradient(listOf(Brand.copy(alpha = if (dark) 0.16f else 0.10f), Color.Transparent), Offset(size.width * 0.92f, size.height * 0.04f), size.width * 0.55f), size.width * 0.55f, Offset(size.width * 0.92f, size.height * 0.04f))
+            drawCircle(Brush.radialGradient(listOf(Color(0xFF2D5BD9).copy(alpha = if (dark) 0.14f else 0.07f), Color.Transparent), Offset(0f, size.height * 0.85f), size.width * 0.6f), size.width * 0.6f, Offset(0f, size.height * 0.85f))
+        }
+        content()
+    }
+}
+/** Grupo de ajustes estilo iOS: tarjeta de vidrio redondeada. */
+@Composable
+fun Group(content: @Composable () -> Unit) {
+    Surface(Modifier.padding(horizontal = 16.dp), shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() < 0.3f) 0.06f else 0.6f))) {
+        MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(surface = Color.Transparent)) { androidx.compose.foundation.layout.Column { content() } }
+    }
 }
