@@ -59,7 +59,7 @@ class Stroke(
 
 @Serializable
 class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null,
-    val items: MutableList<Item> = mutableListOf())
+    val items: MutableList<Item> = mutableListOf(), var ocr: String = "")
 
 /** Elemento no-tinta: 0 = texto, 1 = imagen. */
 @Serializable
@@ -84,4 +84,4 @@ class Notebook(
 class Rec(val file: String, val start: Long, var dur: Long = 0)
 
 @Serializable
-data class NotebookMeta(val id: String, val title: String, val cover: Int, val updated: Long, val pages: Int)
+data class NotebookMeta(val id: String, val title: String, val cover: Int, val updated: Long, val pages: Int, val text: String = "")

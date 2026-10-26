@@ -115,6 +115,16 @@ class InkView(context: Context) : View(context) {
         val op = Op.Recolor(ArrayList(sel), old, new); apply(op); push(op); invalidate(); onChange()
     }
 
+    fun selectedStrokes(): List<Stroke> = ArrayList(sel)
+
+    /** Sustituye los trazos seleccionados por un cuadro de texto (deshacible en dos pasos). */
+    fun replaceSelectionWithText(text: String) {
+        val p = page ?: return; if (sel.isEmpty() || text.isBlank()) return
+        val b = RectF(selBounds); deleteSelection()
+        val it = Item(System.nanoTime(), 0, b.left, b.top, b.width().coerceAtLeast(240f), text = text, size = (b.height() / text.lines().size * 0.7f).coerceIn(24f, 90f), color = color)
+        p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
+    }
+
     fun commitText(it: Item, text: String, isNew: Boolean) {
         val p = page ?: return
         when {

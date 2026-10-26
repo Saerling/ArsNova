@@ -68,7 +68,8 @@ class Repo(private val ctx: Context) {
         return id
     }
 
-    private fun meta(nb: Notebook) = NotebookMeta(nb.id, nb.title, nb.cover, nb.updated, nb.pages.size)
+    private fun meta(nb: Notebook) = NotebookMeta(nb.id, nb.title, nb.cover, nb.updated, nb.pages.size,
+        nb.pages.joinToString(" ") { p -> p.ocr + " " + p.items.joinToString(" ") { it.text } }.take(6000))
 
     @Synchronized private fun write(id: String, s: String, m: NotebookMeta, thumb: Bitmap?) {
         val tmp = File(dir, "$id.tmp"); tmp.writeText(s); tmp.renameTo(File(dir, "$id.json"))

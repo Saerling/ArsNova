@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Search
 import java.text.DateFormat
 import java.util.Date
 
@@ -37,6 +38,7 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
     var menuFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var renaming by remember { mutableStateOf<NotebookMeta?>(null) }
     var importing by remember { mutableStateOf(false) }
+    var q by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
@@ -59,13 +61,16 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp))
-            Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 12.dp))
+            Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
+            OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp),
+                placeholder = { Text("Buscar en títulos y escritura a mano") }, leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null) })
+            val shown = if (q.isBlank()) items else items.filter { it.title.contains(q, true) || it.text.contains(q, true) }
             if (items.isEmpty()) Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text("Crea tu primer cuaderno para empezar a escribir.", color = MaterialTheme.colorScheme.outline)
             }
             LazyVerticalGrid(GridCells.Adaptive(150.dp), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                items(items, key = { it.id }) { m ->
+                items(shown, key = { it.id }) { m ->
                     Box(Modifier.animateItem()) {
                         NotebookCard(repo, m, Modifier.combinedClickable(onClick = { onOpen(m.id) }, onLongClick = { menuFor = m }))
                         DropdownMenu(menuFor?.id == m.id, { menuFor = null }) {

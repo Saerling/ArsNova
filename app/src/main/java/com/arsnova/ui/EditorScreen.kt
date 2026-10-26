@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.FileProvider
 import com.arsnova.data.*
 import com.arsnova.ink.Ink as InkR
@@ -85,6 +86,11 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
 
     val deskColor = if (androidx.compose.foundation.isSystemInDarkTheme()) 0xFF151413.toInt() else InkView.DESK
     fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
+    var indexed by remember { mutableIntStateOf(-1) }
+    var pages by remember { mutableStateOf(false) }
+    var converting by remember { mutableStateOf(false) }
+    // Indexa el texto manuscrito de la página actual en segundo plano (búsqueda).
+    LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages[pageIdx]; val t = com.arsnova.ink.Recognizer.recognize(p.strokes.toList()); if (t != p.ocr) { p.ocr = t; save() } }
 
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
@@ -131,7 +137,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     IconButton(view::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
                     IconButton(view::redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
                     IconButton({ if (pageIdx > 0) pageIdx-- }, enabled = pageIdx > 0) { Icon(Icons.Outlined.ChevronLeft, "Anterior") }
-                    Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge)
+                    TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
                     IconButton({ if (pageIdx < nb.pages.size - 1) pageIdx++ }, enabled = pageIdx < nb.pages.size - 1) { Icon(Icons.Outlined.ChevronRight, "Siguiente") }
                     IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "Más") }
                     DropdownMenu(menu, { menu = false }) {
@@ -158,6 +164,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             AndroidView({ view }, Modifier.fillMaxSize())
+            if (pages) PageGrid(nb, pageIdx, { pageIdx = it; pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); pageIdx = nb.pages.size - 1; dirty++; pages = false }) { pages = false }
             editing?.let { (item, isNew) ->
                 var txt by remember(item) { mutableStateOf(item.text) }
                 var size by remember(item) { mutableFloatStateOf(item.size) }
@@ -213,6 +220,12 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         if (hasSel) {
                             VerticalDivider(Modifier.height(28.dp).padding(horizontal = 8.dp))
                             IconButton(view::deleteSelection) { Icon(Icons.Outlined.Delete, "Eliminar selección", tint = Brand) }
+                            IconButton({ converting = true; scope.launch {
+                                val t = com.arsnova.ink.Recognizer.recognize(view.selectedStrokes())
+                                converting = false
+                                if (t.isBlank()) android.widget.Toast.makeText(ctx, "No se reconoció texto (se necesita el modelo, ~20 MB, con internet la primera vez)", android.widget.Toast.LENGTH_LONG).show()
+                                else view.replaceSelectionWithText(t)
+                            } }, enabled = !converting) { Icon(Icons.Outlined.TextFields, "Convertir a texto") }
                         }
                     }
                 }
@@ -235,4 +248,30 @@ private fun exportPdf(ctx: Context, nb: Notebook) {
     val uri = FileProvider.getUriForFile(ctx, "com.arsnova.files", f)
     ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf")
         .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Exportar PDF"))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PageGrid(nb: Notebook, cur: Int, onPick: (Int) -> Unit, onAdd: () -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismiss) {
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Adaptive(110.dp),
+            contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.heightIn(max = 560.dp)) {
+            items(nb.pages.size) { i ->
+                val bmp by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, i) {
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { InkR.render(nb.pages[i], 0.1f).asImageBitmap() } }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onPick(i) }) {
+                    Box(Modifier.aspectRatio(0.75f).fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Color.White)
+                        .border(if (i == cur) 3.dp else 1.dp, if (i == cur) Brand else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))) {
+                        bmp?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize()) }
+                    }
+                    Text("${i + 1}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+            item {
+                Box(Modifier.aspectRatio(0.75f).fillMaxWidth().clip(RoundedCornerShape(6.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)).clickable { onAdd() },
+                    contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Add, "Añadir página") }
+            }
+        }
+    }
 }
