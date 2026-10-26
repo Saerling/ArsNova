@@ -30,40 +30,48 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** Paleta junto al lápiz (como apretar el Apple Pencil Pro): los lápices brotan en arco desde la punta. */
+/** Paleta junto al lápiz: disco de vidrio con lápices en el arco superior y colores en el inferior. */
 @Composable
 fun PencilArc(at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, onSlot: (Int) -> Unit, onColor: (Int) -> Unit, onDismiss: () -> Unit) {
     val d = LocalDensity.current
     var box by remember { mutableStateOf(IntSize.Zero) }
-    val r = with(d) { 120.dp.toPx() }
+    val disc = 300.dp; val rp = with(d) { (disc / 2).toPx() }
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f)) }
     Box(Modifier.fillMaxSize().onSizeChanged { box = it }.pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
         if (box.width == 0) return@Box
-        val minY = r + 40f; val cx = at.x.coerceIn(r, maxOf(box.width - r, r)); val cy = at.y.coerceIn(minY, maxOf(box.height - 60f, minY))
-        val n = slots.size
-        val bg = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { bg.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 400f)) }
-        val dr = r + with(d) { 46.dp.toPx() }
-        Box(Modifier.offset { IntOffset((cx - dr).roundToInt(), (cy - dr).roundToInt()) }.size(with(d) { (dr * 2).toDp() })
-            .graphicsLayer { scaleX = bg.value; scaleY = bg.value; alpha = bg.value }.clip(CircleShape)
-            .background(Brush.radialGradient(listOf(Color(0xF21C1C1E), Color(0xE62C2C2E)))).border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape))
-        slots.forEachIndexed { i, s ->
-            val a = Math.toRadians(200.0 + 140.0 * i / (n - 1).coerceAtLeast(1))
-            val anim = remember { Animatable(0f) }
-            LaunchedEffect(Unit) { delay(i * 22L); anim.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f)) }
-            val tx = cx + (cos(a) * r).toFloat() * anim.value; val ty = cy + (sin(a) * r).toFloat() * anim.value
-            Box(Modifier.offset { IntOffset((tx - 19.dp.toPx()).roundToInt(), (ty - 28.dp.toPx()).roundToInt()) }
-                .graphicsLayer { scaleX = anim.value; scaleY = anim.value; alpha = anim.value; rotationZ = (Math.toDegrees(a) + 90).toFloat() }) {
-                ToolArt(s, i == active) { onSlot(i) }
+        val cx = at.x.coerceIn(rp + 8f, maxOf(box.width - rp - 8f, rp + 8f)); val cy = at.y.coerceIn(rp + 8f, maxOf(box.height - rp - 8f, rp + 8f))
+        val cur = slots.getOrNull(active)
+        Surface(Modifier.offset { IntOffset((cx - rp).roundToInt(), (cy - rp).roundToInt()) }.size(disc)
+            .graphicsLayer { scaleX = 0.85f + 0.15f * appear.value; scaleY = scaleX; alpha = appear.value }.pointerInput(Unit) { detectTapGestures { } },
+            shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), shadowElevation = 18.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() < 0.3f) 0.1f else 0.7f))) {
+            Box(Modifier.fillMaxSize()) {
+                val n = slots.size
+                slots.forEachIndexed { i, s ->
+                    val ang = Math.toRadians(198.0 + 144.0 * i / (n - 1).coerceAtLeast(1))
+                    val it = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) { delay(30L + i * 18L); it.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 500f)) }
+                    val rr = 104f
+                    Box(Modifier.align(Alignment.Center).offset((cos(ang) * rr).dp, (sin(ang) * rr + 6).dp).graphicsLayer { alpha = it.value; translationY = (1 - it.value) * 18f }) {
+                        if (i == active) Box(Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
+                        ToolArt(s, i == active, label = false) { onSlot(i) }
+                    }
+                }
+                swatches.forEachIndexed { i, c ->
+                    val ang = Math.toRadians(40.0 + 100.0 * i / 4)
+                    val it = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) { delay(110L + i * 22L); it.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 520f)) }
+                    val on = cur != null && (cur.color or 0xFF000000.toInt()) == (c or 0xFF000000.toInt())
+                    Box(Modifier.align(Alignment.Center).offset((cos(ang) * 96).dp, (sin(ang) * 96).dp).graphicsLayer { scaleX = it.value; scaleY = it.value }
+                        .size(if (on) 34.dp else 28.dp).clip(CircleShape).background(Color(c)).border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.surface else Color.Black.copy(alpha = 0.1f), CircleShape)
+                        .clickable { onColor(c) })
+                }
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(Color(cur?.color ?: 0)).border(2.dp, MaterialTheme.colorScheme.surface, CircleShape))
+                    Text(cur?.name ?: "", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+                }
             }
-        }
-        swatches.forEachIndexed { i, c ->
-            val a = Math.toRadians(225.0 + 90.0 * i / 4)
-            val anim = remember { Animatable(0f) }
-            LaunchedEffect(Unit) { delay(120 + i * 30L); anim.animateTo(1f, spring(dampingRatio = 0.5f)) }
-            val rr = r * 0.55f
-            Box(Modifier.offset { IntOffset((cx + cos(a) * rr * anim.value - 13.dp.toPx()).toInt(), (cy + sin(a) * rr * anim.value - 13.dp.toPx()).toInt()) }
-                .graphicsLayer { scaleX = anim.value; scaleY = anim.value }.size(26.dp).clip(CircleShape).background(Color(c))
-                .border(2.dp, Color.White, CircleShape).clickable { onColor(c) })
         }
     }
 }

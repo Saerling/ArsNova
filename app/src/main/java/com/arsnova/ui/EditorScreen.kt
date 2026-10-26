@@ -299,8 +299,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     }
                 }
             }
-            val tbAlpha by androidx.compose.animation.core.animateFloatAsState(if (inking && !autoMin) 0.3f else 1f, androidx.compose.animation.core.tween(if (inking) 400 else 180), label = "tb")
-            val mini = collapsed || (autoMin && inking)
+            val tbAlpha by androidx.compose.animation.core.animateFloatAsState(1f, label = "tb")
+            val mini = collapsed
             var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
             val dens = androidx.compose.ui.platform.LocalDensity.current
             val handle = Modifier.pointerInput(dock) {

@@ -73,10 +73,7 @@ object Ink {
         }
         fill.color = color; fill.shader = if (style == 2) grain else null
         c.drawPath(path, fill)
-        if (style != 1) {
-            c.drawCircle(pts[0], pts[1], radius(style, width, pts[2], 1f, 0f), fill)
-            c.drawCircle(pts[n - 3], pts[n - 2], radius(style, width, pts[n - 1], 1f, 0f).let { if (style == 3) it * 0.5f else it }, fill)
-        }
+        if (style == 1) { c.drawCircle(pts[0], pts[1], radius(1, width, pts[2], 1f, 0f), fill); c.drawCircle(pts[n - 3], pts[n - 2], radius(1, width, pts[n - 1], 1f, 0f), fill) }
         fill.shader = null
     }
 
@@ -92,6 +89,12 @@ object Ink {
             }
             path.lineTo(px, py); return path
         }
+        if (style != 1) return Freehand.path(pts, n, when (style) {
+            2 -> Freehand.Opt(width, 0.35f, 0.5f, 0.45f)
+            3 -> Freehand.Opt(width * 1.2f, 0.82f, 0.62f, 0.5f, taperStart = width * 3f, taperEnd = width * 5f)
+            4 -> Freehand.Opt(width, 0f, 0.5f, 0.45f)
+            else -> Freehand.Opt(width, 0.5f, 0.5f, 0.45f)
+        })
         val xs = FloatArray(cnt) { pts[3 * it] }; val ys = FloatArray(cnt) { pts[3 * it + 1] }
         smooth(xs); smooth(ys)
         val rs = FloatArray(cnt) {
