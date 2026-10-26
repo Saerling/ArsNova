@@ -63,6 +63,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var learned by remember { mutableIntStateOf(prefs.getInt("tapCode", -1)) }
 
     val view = remember { InkView(ctx) }
+    val deskColor = if (androidx.compose.foundation.isSystemInDarkTheme()) 0xFF151413.toInt() else InkView.DESK
     fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
 
     SideEffect {
@@ -73,6 +74,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             if (learning) { learned = code; prefs.edit().putInt("tapCode", code).apply(); learning = false; true } else false
         }
         view.page = nb.pages[pageIdx]; view.tool = tool; view.color = color
+        view.desk = deskColor
         view.penWidth = penW; view.hlWidth = hlW; view.stylusOnly = stylusOnly
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
@@ -150,8 +152,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         @Composable fun T(t: Tool, icon: ImageVector, d: String) {
                             val on = tool == t
                             IconButton({ if (on) showWidth = !showWidth else { tool = t; showWidth = false } },
-                                Modifier.clip(CircleShape).background(if (on) Ink else Color.Transparent)) {
-                                Icon(icon, d, tint = if (on) Color.White else Ink)
+                                Modifier.clip(CircleShape).background(if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent)) {
+                                Icon(icon, d, tint = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface)
                             }
                         }
                         T(Tool.PEN, Icons.Outlined.Draw, "Bolígrafo")

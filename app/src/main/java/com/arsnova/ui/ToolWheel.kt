@@ -72,8 +72,8 @@ fun ToolWheel(
             outer.forEachIndexed { i, (icon, on, act) ->
                 val a = Math.toRadians(-90.0 + i * 60.0)
                 Box(Modifier.align(Alignment.Center).offset((cos(a) * 92).dp, (sin(a) * 92).dp).size(48.dp).clip(CircleShape)
-                    .background(if (on) Ink else Color.Transparent).clickable { act() }, contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = if (on) Color.White else Ink)
+                    .background(if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent).clickable { act() }, contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface)
                 }
             }
             PenColors.forEachIndexed { i, c ->

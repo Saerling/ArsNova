@@ -24,6 +24,8 @@ import com.arsnova.data.Repo
 import com.arsnova.data.Template
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import java.text.DateFormat
 import java.util.Date
 
@@ -34,13 +36,26 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
     var creating by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<NotebookMeta?>(null) }
     var renaming by remember { mutableStateOf<NotebookMeta?>(null) }
+    var importing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { importing = true; scope.launch {
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.') ?: "PDF"
+            val id = runCatching { withContext(Dispatchers.IO) { repo.importPdf(uri, name, CoverColors[2]) } }.getOrNull()
+            importing = false
+            if (id != null) onOpen(id) else android.widget.Toast.makeText(ctx, "No se pudo abrir el PDF", android.widget.Toast.LENGTH_SHORT).show()
+        } }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
+        floatingActionButton = { Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SmallFloatingActionButton({ pick.launch(arrayOf("application/pdf")) }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                Icon(androidx.compose.material.icons.Icons.Outlined.PictureAsPdf, "Importar PDF") }
             ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Outlined.Add, null) },
-                text = { Text("Nuevo cuaderno") }, containerColor = Ink, contentColor = Color.White)
-        },
+                text = { Text("Nuevo cuaderno") }, containerColor = MaterialTheme.colorScheme.onSurface, contentColor = MaterialTheme.colorScheme.surface)
+        } },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp))
@@ -51,7 +66,7 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
             LazyVerticalGrid(GridCells.Adaptive(150.dp), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 items(items, key = { it.id }) { m ->
-                    Box {
+                    Box(Modifier.animateItem()) {
                         NotebookCard(repo, m, Modifier.combinedClickable(onClick = { onOpen(m.id) }, onLongClick = { menuFor = m }))
                         DropdownMenu(menuFor?.id == m.id, { menuFor = null }) {
                             DropdownMenuItem({ Text("Renombrar") }, { renaming = m; menuFor = null })
@@ -63,6 +78,7 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
         }
     }
 
+    if (importing) AlertDialog({}, confirmButton = {}, title = { Text("Importando PDF…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) })
     if (creating) NewNotebookDialog({ creating = false }) { t, c, tpl -> creating = false; onOpen(repo.create(t, c, tpl)) }
     renaming?.let { m ->
         var t by remember { mutableStateOf(m.title) }

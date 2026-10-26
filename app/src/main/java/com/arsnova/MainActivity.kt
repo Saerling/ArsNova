@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val repo = Repo(applicationContext)
+        com.arsnova.ink.Ink.bgDir = repo.dir
         setContent {
             ArsTheme {
                 var open by rememberSaveable { mutableStateOf<String?>(null) }

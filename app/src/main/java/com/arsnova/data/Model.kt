@@ -57,7 +57,7 @@ class Stroke(
 }
 
 @Serializable
-class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf())
+class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null)
 
 @Serializable
 class Notebook(

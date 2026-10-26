@@ -22,6 +22,12 @@ object Ink {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
     }
     private val white = Paint().apply { color = Color.WHITE }
+    private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    var bgDir: java.io.File? = null
+    private val bgCache = android.util.LruCache<String, Bitmap>(3)
+    private val dst = RectF()
+    private fun bg(name: String): Bitmap? = bgCache.get(name)
+        ?: BitmapFactory.decodeFile(java.io.File(bgDir, name).path)?.also { bgCache.put(name, it) }
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFDCD6CB.toInt(); strokeWidth = 1.5f }
 
     fun radius(width: Float, p: Float) = width * 0.5f * (0.28f + 0.72f * p.coerceIn(0f, 1f).pow(0.75f))
@@ -81,8 +87,13 @@ object Ink {
         for (i in 1 until a.size - 1) { val cur = a[i]; a[i] = (prev + 2 * cur + a[i + 1]) * 0.25f; prev = cur }
     }
 
-    fun drawPaper(c: Canvas, t: Template) {
+    fun drawPaper(c: Canvas, t: Template, bgName: String? = null) {
         c.drawRect(0f, 0f, PAGE_W, PAGE_H, white)
+        bgName?.let { bg(it) }?.let { b ->
+            val s = minOf(PAGE_W / b.width, PAGE_H / b.height); val w = b.width * s; val h = b.height * s
+            dst.set((PAGE_W - w) / 2, (PAGE_H - h) / 2, (PAGE_W + w) / 2, (PAGE_H + h) / 2)
+            c.drawBitmap(b, null, dst, bmpPaint)
+        }
         when (t) {
             Template.BLANK -> {}
             Template.LINED -> { var y = 160f; while (y < PAGE_H - 60) { c.drawLine(70f, y, PAGE_W - 70, y, rule); y += 56f } }
@@ -96,7 +107,7 @@ object Ink {
         }
     }
 
-    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p.template); p.strokes.forEach { drawStroke(c, it) } }
+    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p.template, p.bg); p.strokes.forEach { drawStroke(c, it) } }
 
     fun render(p: Page, scale: Float): Bitmap {
         val b = Bitmap.createBitmap((PAGE_W * scale).toInt(), (PAGE_H * scale).toInt(), Bitmap.Config.ARGB_8888)

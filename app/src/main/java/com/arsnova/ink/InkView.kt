@@ -24,6 +24,8 @@ class InkView(context: Context) : View(context) {
     var hlWidth = 28f
     var eraserRadius = 16f
     var stylusOnly = false
+    var desk = DESK
+        set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var onChange: () -> Unit = {}
     var onState: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> }
     /** Doble toque / botón del lápiz: abre la rueda en (x, y) de la vista. */
@@ -141,15 +143,15 @@ class InkView(context: Context) : View(context) {
         if (!fitted) doFit()
         val bmp = cache ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { cache = it; cacheDirty = true }
         if (cacheDirty && mode != Mode.NAV) {
-            val cc = Canvas(bmp); cc.drawColor(DESK); cc.save(); cc.concat(matrix)
+            val cc = Canvas(bmp); cc.drawColor(desk); cc.save(); cc.concat(matrix)
             cc.drawRect(0f, 6f, Ink.PAGE_W, Ink.PAGE_H + 6f, shadow)
-            Ink.drawPaper(cc, p.template)
+            Ink.drawPaper(cc, p.template, p.bg)
             val selSet = sel.toHashSet()
             for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s)
             cc.restore(); cacheMatrix.set(matrix); cacheDirty = false
         }
         cacheMatrix.invert(tmp); tmp.postConcat(matrix)
-        c.drawColor(DESK); c.drawBitmap(bmp, tmp, bmpPaint)
+        c.drawColor(desk); c.drawBitmap(bmp, tmp, bmpPaint)
         c.save(); c.concat(matrix)
         if (sel.isNotEmpty()) {
             c.save(); c.translate(selDx, selDy); sel.forEach { Ink.drawStroke(c, it) }
