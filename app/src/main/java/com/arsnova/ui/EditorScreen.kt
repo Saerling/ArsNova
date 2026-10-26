@@ -111,7 +111,6 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var boxW by remember { mutableFloatStateOf(1f) }
     var collapsed by remember { mutableStateOf(false) }
     var lastPage by remember { mutableIntStateOf(0) }
-    }
     var prevSlot by remember { mutableIntStateOf(0) }
     fun onDoubleTap() {
         val now = System.currentTimeMillis(); if (now - lastTap < 450) return; lastTap = now
