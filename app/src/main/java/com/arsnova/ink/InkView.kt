@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.input.motionprediction.MotionEventPredictor
 import com.arsnova.data.Page
+import com.arsnova.data.Item
 import com.arsnova.data.Stroke
 import com.arsnova.data.Tool
 import kotlin.math.hypot
@@ -16,7 +17,7 @@ import kotlin.math.hypot
 @SuppressLint("ViewConstructor")
 class InkView(context: Context) : View(context) {
     var page: Page? = null
-        set(v) { if (field === v) return; field = v; sel.clear(); curN = 0; mode = Mode.NONE; fitted = false; cacheDirty = true; invalidate(); notifyState() }
+        set(v) { if (field === v) return; field = v; sel.clear(); selIt.clear(); curN = 0; mode = Mode.NONE; fitted = false; cacheDirty = true; invalidate(); notifyState() }
     var tool = Tool.PEN
         set(v) { if (field == v) return; if (v != Tool.LASSO) clearSelection(); field = v; invalidate() }
     var color = 0xFF1D1B18.toInt()
@@ -44,8 +45,11 @@ class InkView(context: Context) : View(context) {
 
     private sealed class Op {
         class Add(val s: Stroke) : Op()
-        class Remove(val items: List<Pair<Int, Stroke>>) : Op()
-        class Move(val s: List<Stroke>, val dx: Float, val dy: Float) : Op()
+        class Remove(val items: List<Pair<Int, Stroke>>, val its: List<Pair<Int, Item>> = emptyList()) : Op()
+        class Move(val s: List<Stroke>, val its: List<Item>, val dx: Float, val dy: Float) : Op()
+        class AddItem(val it: Item) : Op()
+        class EditText(val it: Item, val old: String, val new: String) : Op()
+        class Resize(val it: Item, val ow: Float, val oh: Float, val nw: Float, val nh: Float) : Op()
         class Recolor(val s: List<Stroke>, val old: IntArray, val new: IntArray) : Op()
     }
     private val undoMap = HashMap<Long, ArrayDeque<Op>>()
@@ -71,7 +75,9 @@ class InkView(context: Context) : View(context) {
     private val erased = ArrayList<Pair<Int, Stroke>>()
     private var ex = -1f; private var ey = -1f
     private val lasso = Path()
-    private val sel = ArrayList<Stroke>(); private val selBounds = RectF()
+    private val sel = ArrayList<Stroke>(); private val selIt = ArrayList<Item>(); private val selBounds = RectF()
+    private var resizing = false
+    var onTextEdit: (Item, Boolean) -> Unit = { _, _ -> }
     private var selDx = 0f; private var selDy = 0f; private var lastX = 0f; private var lastY = 0f
     private var lfx = 0f; private var lfy = 0f; private var lspan = 0f
     private val pt = FloatArray(2)
@@ -92,13 +98,14 @@ class InkView(context: Context) : View(context) {
     fun canUndo() = page != null && undos().isNotEmpty()
     fun undo() { val op = undos().removeLastOrNull() ?: return; revert(op); redos().addLast(op); after() }
     fun redo() { val op = redos().removeLastOrNull() ?: return; apply(op); undos().addLast(op); after() }
-    fun hasSelection() = sel.isNotEmpty()
+    fun hasSelection() = sel.isNotEmpty() || selIt.isNotEmpty()
 
     fun deleteSelection() {
-        val p = page ?: return; if (sel.isEmpty()) return
-        val items = ArrayList<Pair<Int, Stroke>>()
+        val p = page ?: return; if (!hasSelection()) return
+        val items = ArrayList<Pair<Int, Stroke>>(); val its = ArrayList<Pair<Int, Item>>()
         for (s in sel) { val i = p.strokes.indexOf(s); if (i >= 0) { p.strokes.removeAt(i); items += i to s } }
-        push(Op.Remove(items)); sel.clear(); after()
+        for (s in selIt) { val i = p.items.indexOf(s); if (i >= 0) { p.items.removeAt(i); its += i to s } }
+        push(Op.Remove(items, its)); sel.clear(); selIt.clear(); after()
     }
 
     fun recolorSelection(c: Int) {
@@ -106,6 +113,24 @@ class InkView(context: Context) : View(context) {
         val old = IntArray(sel.size) { sel[it].color }
         val new = IntArray(sel.size) { if (sel[it].hl) hlColor(c) else c }
         val op = Op.Recolor(ArrayList(sel), old, new); apply(op); push(op); invalidate(); onChange()
+    }
+
+    fun commitText(it: Item, text: String, isNew: Boolean) {
+        val p = page ?: return
+        when {
+            isNew && text.isNotBlank() -> { it.text = text; p.items.add(it); push(Op.AddItem(it)) }
+            !isNew && text.isBlank() -> { val i = p.items.indexOf(it); if (i >= 0) { p.items.removeAt(i); push(Op.Remove(emptyList(), listOf(i to it))) } }
+            !isNew && text != it.text -> { val op = Op.EditText(it, it.text, text); apply(op); push(op) }
+            else -> return
+        }
+        cacheDirty = true; invalidate(); onChange()
+    }
+
+    fun addImage(file: String, bw: Int, bh: Int) {
+        val p = page ?: return
+        val c = toPage(width / 2f, height / 2f); val w = minOf(700f, Ink.PAGE_W * 0.6f); val h = w * bh / bw
+        val it = Item(System.nanoTime(), 1, c[0] - w / 2, c[1] - h / 2, w, h, file = file)
+        p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
     }
 
     fun fit() { fitted = false; cacheDirty = true; invalidate() }
@@ -117,8 +142,11 @@ class InkView(context: Context) : View(context) {
         val p = page!!
         when (op) {
             is Op.Add -> p.strokes.add(op.s)
-            is Op.Remove -> op.items.forEach { p.strokes.remove(it.second) }
-            is Op.Move -> op.s.forEach { it.offset(op.dx, op.dy) }
+            is Op.Remove -> { op.items.forEach { p.strokes.remove(it.second) }; op.its.forEach { p.items.remove(it.second) } }
+            is Op.Move -> { op.s.forEach { it.offset(op.dx, op.dy) }; op.its.forEach { it.offset(op.dx, op.dy) } }
+            is Op.AddItem -> p.items.add(op.it)
+            is Op.EditText -> op.it.text = op.new
+            is Op.Resize -> { op.it.w = op.nw; op.it.h = op.nh }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.new[i] }
         }
     }
@@ -126,15 +154,19 @@ class InkView(context: Context) : View(context) {
         val p = page!!
         when (op) {
             is Op.Add -> p.strokes.remove(op.s)
-            is Op.Remove -> op.items.asReversed().forEach { (i, s) -> p.strokes.add(i.coerceAtMost(p.strokes.size), s) }
-            is Op.Move -> op.s.forEach { it.offset(-op.dx, -op.dy) }
+            is Op.Remove -> { op.items.asReversed().forEach { (i, s) -> p.strokes.add(i.coerceAtMost(p.strokes.size), s) }
+                op.its.asReversed().forEach { (i, s) -> p.items.add(i.coerceAtMost(p.items.size), s) } }
+            is Op.Move -> { op.s.forEach { it.offset(-op.dx, -op.dy) }; op.its.forEach { it.offset(-op.dx, -op.dy) } }
+            is Op.AddItem -> p.items.remove(op.it)
+            is Op.EditText -> op.it.text = op.old
+            is Op.Resize -> { op.it.w = op.ow; op.it.h = op.oh }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.old[i] }
         }
     }
     private fun push(op: Op) { val u = undos(); u.addLast(op); if (u.size > 300) u.removeFirst(); redos().clear(); notifyState() }
-    private fun after() { sel.clear(); cacheDirty = true; invalidate(); notifyState(); onChange() }
-    private fun notifyState() { if (page != null) onState(undos().isNotEmpty(), redos().isNotEmpty(), sel.isNotEmpty()) }
-    private fun clearSelection() { if (sel.isNotEmpty()) { sel.clear(); cacheDirty = true; invalidate(); notifyState() } }
+    private fun after() { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState(); onChange() }
+    private fun notifyState() { if (page != null) onState(undos().isNotEmpty(), redos().isNotEmpty(), hasSelection()) }
+    private fun clearSelection() { if (hasSelection()) { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState() } }
 
     // ---------- transform ----------
     private fun updateMatrix() { matrix.setScale(scale, scale); matrix.postTranslate(tx, ty); matrix.invert(inv) }
@@ -156,6 +188,7 @@ class InkView(context: Context) : View(context) {
             val cc = Canvas(bmp); cc.drawColor(desk); cc.save(); cc.concat(matrix)
             cc.drawRect(0f, 6f, Ink.PAGE_W, Ink.PAGE_H + 6f, shadow)
             Ink.drawPaper(cc, p.template, p.bg)
+            for (it in p.items) if (it !in selIt) Ink.drawItem(cc, it)
             val selSet = sel.toHashSet()
             for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
             cc.restore(); cacheMatrix.set(matrix); cacheDirty = false
@@ -163,8 +196,8 @@ class InkView(context: Context) : View(context) {
         cacheMatrix.invert(tmp); tmp.postConcat(matrix)
         c.drawColor(desk); c.drawBitmap(bmp, tmp, bmpPaint)
         c.save(); c.concat(matrix)
-        if (sel.isNotEmpty()) {
-            c.save(); c.translate(selDx, selDy); sel.forEach { Ink.drawStroke(c, it) }
+        if (hasSelection()) {
+            c.save(); c.translate(selDx, selDy); selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
             dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
         }
         if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else penWidth, curHl, if (curHl) hlColor(color) else color)
@@ -226,7 +259,10 @@ class InkView(context: Context) : View(context) {
                 add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap()
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y) }
-            Tool.LASSO -> if (sel.isNotEmpty() && selBounds.contains(x, y)) { mode = Mode.MOVE_SEL; lastX = x; lastY = y }
+            Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
+            Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
+                mode = Mode.MOVE_SEL; lastX = x; lastY = y
+                resizing = sel.isEmpty() && selIt.size == 1 && selIt[0].kind == 1 && hypot(x - selBounds.right, y - selBounds.bottom) < 40f / scale }
                 else { clearSelection(); mode = Mode.LASSO; lasso.reset(); lasso.moveTo(x, y) }
         }
         invalidate()
@@ -317,11 +353,19 @@ class InkView(context: Context) : View(context) {
                     while (j < s.pts.size) { tot++; if (rg.contains(s.pts[j].toInt(), s.pts[j + 1].toInt())) inside++; j += 3 }
                     if (tot > 0 && inside * 2 >= tot) { sel += s; selBounds.union(s.bounds) }
                 }
+                for (it in p.items) { val b = it.bounds(); if (rg.contains(b.centerX().toInt(), b.centerY().toInt())) { selIt += it; selBounds.union(b) } }
                 lasso.reset(); cacheDirty = true; notifyState()
             }
-            Mode.TAP -> hitStroke(lastX, lastY)?.let(onStrokeTap)
-            Mode.MOVE_SEL -> if (selDx != 0f || selDy != 0f) {
-                val op = Op.Move(ArrayList(sel), selDx, selDy); apply(op); undos().addLast(op); redos().clear()
+            Mode.TAP -> if (tool == Tool.TEXT && !tapMode) {
+                val hit = p.items.lastOrNull { it.kind == 0 && it.bounds().contains(lastX, lastY) }
+                if (hit != null) onTextEdit(hit, false) else onTextEdit(Item(System.nanoTime(), 0, lastX, lastY, (Ink.PAGE_W - lastX - 60f).coerceAtLeast(240f), color = color), true)
+            } else hitStroke(lastX, lastY)?.let(onStrokeTap)
+            Mode.MOVE_SEL -> if (resizing) {
+                val it = selIt[0]; val ow = it.w; val oh = it.h; val nw = (ow + selDx).coerceAtLeast(60f); val nh = oh * nw / ow
+                val op = Op.Resize(it, ow, oh, nw, nh); apply(op); push(op); selDx = 0f; selDy = 0f; resizing = false
+                selBounds.set(it.bounds()); cacheDirty = true; onChange()
+            } else if (selDx != 0f || selDy != 0f) {
+                val op = Op.Move(ArrayList(sel), ArrayList(selIt), selDx, selDy); apply(op); undos().addLast(op); redos().clear()
                 selBounds.offset(selDx, selDy); selDx = 0f; selDy = 0f; notifyState(); onChange()
             }
             else -> {}

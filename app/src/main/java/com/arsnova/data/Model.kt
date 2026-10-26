@@ -13,7 +13,7 @@ import kotlinx.serialization.encoding.Encoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO, TEXT }
 
 @Serializable enum class Template { BLANK, LINED, GRID, DOTS }
 
@@ -58,7 +58,16 @@ class Stroke(
 }
 
 @Serializable
-class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null)
+class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null,
+    val items: MutableList<Item> = mutableListOf())
+
+/** Elemento no-tinta: 0 = texto, 1 = imagen. */
+@Serializable
+class Item(val id: Long, val kind: Int, var x: Float, var y: Float, var w: Float, var h: Float = 0f,
+    var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt()) {
+    fun bounds() = RectF(x, y, x + w, y + h)
+    fun offset(dx: Float, dy: Float) { x += dx; y += dy }
+}
 
 @Serializable
 class Notebook(

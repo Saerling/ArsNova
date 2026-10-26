@@ -31,6 +31,7 @@ import com.arsnova.data.*
 import com.arsnova.ink.Ink as InkR
 import com.arsnova.ink.InkView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 val EraserIcon = ImageVector.Builder("eraser", 24.dp, 24.dp, 24f, 24f).path(fill = androidx.compose.ui.graphics.SolidColor(Color.Black)) {
@@ -58,6 +59,22 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var hasSel by remember { mutableStateOf(false) }
     var dirty by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Pair<Item, Boolean>?>(null) }
+    val scope = rememberCoroutineScope()
+    val pickImg = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching {
+                val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                ctx.contentResolver.openInputStream(uri)!!.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+                var ss = 1; while (maxOf(o.outWidth, o.outHeight) / ss > 2000) ss *= 2
+                val b = ctx.contentResolver.openInputStream(uri)!!.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = ss }) }!!
+                val name = "${nb.id}-img${System.currentTimeMillis()}.jpg"
+                File(repo.dir, name).outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+                Triple(name, b.width, b.height)
+            }.getOrNull() }
+            r?.let { (n, w, h) -> view.addImage(n, w, h) }
+        }
+    }
     val audio = remember { AudioCtl(ctx, repo.dir, nb) }
     val micPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) runCatching { audio.startRec() } }
@@ -72,6 +89,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
+        view.onTextEdit = { it, isNew -> editing = it to isNew }
         view.tapMode = audio.open
         view.replayTime = audio.replayTime()
         view.onStrokeTap = { s -> audio.jumpTo(s.t) }
@@ -140,6 +158,19 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             AndroidView({ view }, Modifier.fillMaxSize())
+            editing?.let { (item, isNew) ->
+                var txt by remember(item) { mutableStateOf(item.text) }
+                var size by remember(item) { mutableFloatStateOf(item.size) }
+                AlertDialog({ editing = null }, title = { Text(if (isNew) "Nuevo texto" else "Editar texto") },
+                    text = { Column {
+                        OutlinedTextField(txt, { txt = it }, Modifier.fillMaxWidth(), minLines = 3)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            listOf(28f to "S", 40f to "M", 60f to "L", 88f to "XL").forEach { (v, l) -> FilterChip(size == v, { size = v }, { Text(l) }) }
+                        }
+                    } },
+                    confirmButton = { TextButton({ item.size = size; view.commitText(item, txt, isNew); editing = null }) { Text("Listo") } },
+                    dismissButton = { TextButton({ editing = null }) { Text("Cancelar") } })
+            }
             if (learning) AlertDialog({ learning = false }, confirmButton = { TextButton({ learning = false }) { Text("Cancelar") } },
                 title = { Text("Doble toque") }, text = { Text("Haz doble toque en tu lápiz ahora (o pulsa su botón). ArsNova lo usará para abrir la rueda de herramientas.") })
             wheelAt?.let { at ->
@@ -170,6 +201,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         T(Tool.HIGHLIGHTER, Icons.Outlined.BorderColor, "Resaltador")
                         T(Tool.ERASER, EraserIcon, "Borrador")
                         T(Tool.LASSO, Icons.Outlined.Gesture, "Lazo")
+                        T(Tool.TEXT, Icons.Outlined.TextFields, "Texto")
+                        IconButton({ pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Outlined.Image, "Imagen") }
                         IconButton({ wheelAt = androidx.compose.ui.geometry.Offset(view.width / 2f, view.height / 2f) }) { Icon(Icons.Outlined.DonutLarge, "Rueda") }
                         VerticalDivider(Modifier.height(28.dp).padding(horizontal = 8.dp))
                         PenColors.forEach { c ->

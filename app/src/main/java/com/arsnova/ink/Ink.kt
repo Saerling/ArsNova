@@ -24,9 +24,9 @@ object Ink {
     private val white = Paint().apply { color = Color.WHITE }
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     var bgDir: java.io.File? = null
-    private val bgCache = android.util.LruCache<String, Bitmap>(3)
+    private val bgCache = android.util.LruCache<String, Bitmap>(8)
     private val dst = RectF()
-    private fun bg(name: String): Bitmap? = bgCache.get(name)
+    fun bg(name: String): Bitmap? = bgCache.get(name)
         ?: BitmapFactory.decodeFile(java.io.File(bgDir, name).path)?.also { bgCache.put(name, it) }
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFDCD6CB.toInt(); strokeWidth = 1.5f }
 
@@ -108,7 +108,15 @@ object Ink {
         }
     }
 
-    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p.template, p.bg); p.strokes.forEach { drawStroke(c, it) } }
+    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p.template, p.bg); p.items.forEach { drawItem(c, it) }; p.strokes.forEach { drawStroke(c, it) } }
+
+    private val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG)
+    fun drawItem(c: Canvas, it: com.arsnova.data.Item) {
+        if (it.kind == 1) { it.file?.let { f -> bg(f) }?.let { b -> dst.set(it.x, it.y, it.x + it.w, it.y + it.h); c.drawBitmap(b, null, dst, bmpPaint) }; return }
+        tp.textSize = it.size; tp.color = it.color
+        val l = android.text.StaticLayout.Builder.obtain(it.text, 0, it.text.length, tp, it.w.toInt().coerceAtLeast(10)).build()
+        it.h = l.height.toFloat(); c.save(); c.translate(it.x, it.y); l.draw(c); c.restore()
+    }
 
     fun render(p: Page, scale: Float): Bitmap {
         val b = Bitmap.createBitmap((PAGE_W * scale).toInt(), (PAGE_H * scale).toInt(), Bitmap.Config.ARGB_8888)
