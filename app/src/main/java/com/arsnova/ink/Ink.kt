@@ -32,9 +32,10 @@ object Ink {
 
     fun radius(width: Float, p: Float) = width * 0.5f * (0.28f + 0.72f * p.coerceIn(0f, 1f).pow(0.75f))
 
-    fun drawStroke(c: Canvas, s: Stroke) {
+    fun drawStroke(c: Canvas, s: Stroke, faded: Boolean = false) {
         val path = s.path ?: buildPath(s.pts, s.pts.size, s.width, s.hl).also { s.path = it }
-        draw(c, path, s.pts, s.pts.size, s.width, s.hl, s.color)
+        val col = if (faded) (s.color and 0x00FFFFFF) or (((s.color ushr 24) * 0.2f).toInt() shl 24) else s.color
+        draw(c, path, s.pts, s.pts.size, s.width, s.hl, col)
     }
 
     fun drawLive(c: Canvas, pts: FloatArray, n: Int, width: Float, hl: Boolean, color: Int) =

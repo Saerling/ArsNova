@@ -39,6 +39,7 @@ class Stroke(
     val width: Float,
     val hl: Boolean = false,
     @Serializable(with = PtsSerializer::class) var pts: FloatArray,
+    val t: Long = 0,
 ) {
     @Transient var path: Path? = null
     @Transient private var b: RectF? = null
@@ -67,7 +68,11 @@ class Notebook(
     var template: Template,
     var updated: Long,
     val pages: MutableList<Page>,
+    val recs: MutableList<Rec> = mutableListOf(),
 )
+
+@Serializable
+class Rec(val file: String, val start: Long, var dur: Long = 0)
 
 @Serializable
 data class NotebookMeta(val id: String, val title: String, val cover: Int, val updated: Long, val pages: Int)

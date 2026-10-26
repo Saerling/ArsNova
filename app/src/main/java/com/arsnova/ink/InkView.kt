@@ -24,6 +24,11 @@ class InkView(context: Context) : View(context) {
     var hlWidth = 28f
     var eraserRadius = 16f
     var stylusOnly = false
+    var replayTime = -1L
+        set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
+    var tapMode = false
+    var onStrokeTap: (Stroke) -> Unit = {}
+    private var shapeLocked = false; private var tdx = 0f; private var tdy = 0f
     var desk = DESK
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var onChange: () -> Unit = {}
@@ -57,7 +62,7 @@ class InkView(context: Context) : View(context) {
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
 
-    private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV }
+    private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV, TAP }
     private var mode = Mode.NONE
     private var pid = -1; private var isStylus = false
 
@@ -74,7 +79,12 @@ class InkView(context: Context) : View(context) {
     private val snap = Runnable {
         if (mode == Mode.DRAW && curN >= 18) {
             snapped = true; sx0 = cur[0]; sy0 = cur[1]
-            line(cur[curN - 3], cur[curN - 2]); performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); invalidate()
+            val sh = Shapes.recognize(cur, curN)
+            if (sh != null) {
+                var avg = 0f; var i = 2; while (i < curN) { avg += cur[i]; i += 3 }; avg /= (curN / 3)
+                curN = 0; var j = 0; while (j < sh.size) { add(sh[j], sh[j + 1], avg); j += 2 }; shapeLocked = true
+            } else line(cur[curN - 3], cur[curN - 2])
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); invalidate()
         }
     }
 
@@ -147,7 +157,7 @@ class InkView(context: Context) : View(context) {
             cc.drawRect(0f, 6f, Ink.PAGE_W, Ink.PAGE_H + 6f, shadow)
             Ink.drawPaper(cc, p.template, p.bg)
             val selSet = sel.toHashSet()
-            for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s)
+            for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
             cc.restore(); cacheMatrix.set(matrix); cacheDirty = false
         }
         cacheMatrix.invert(tmp); tmp.postConcat(matrix)
@@ -209,9 +219,10 @@ class InkView(context: Context) : View(context) {
         val eraserBtn = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER || (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
         val t = if (eraserBtn) Tool.ERASER else tool
         val sx = e.getX(i); val sy = e.getY(i); val q = toPage(sx, sy); val x = q[0]; val y = q[1]
+        if (tapMode) { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y; return }
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
-                clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curN = 0; snapped = false
+                clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curN = 0; snapped = false; shapeLocked = false
                 add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap()
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y) }
@@ -242,13 +253,14 @@ class InkView(context: Context) : View(context) {
         val q = toPage(sx, sy); val x = q[0]; val y = q[1]
         when (mode) {
             Mode.DRAW -> {
-                if (snapped) { line(x, y); return }
+                if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) return
                 add(x, y, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
             Mode.LASSO -> lasso.lineTo(x, y)
+            Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
             Mode.MOVE_SEL -> { selDx += x - lastX; selDy += y - lastY; lastX = x; lastY = y }
             else -> {}
         }
@@ -290,7 +302,7 @@ class InkView(context: Context) : View(context) {
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
-                val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN))
+                val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN), System.currentTimeMillis())
                 p.strokes.add(s); push(Op.Add(s))
                 if (!cacheDirty) cache?.let { val cc = Canvas(it); cc.concat(cacheMatrix); Ink.drawStroke(cc, s) }
                 curN = 0; onChange()
@@ -307,6 +319,7 @@ class InkView(context: Context) : View(context) {
                 }
                 lasso.reset(); cacheDirty = true; notifyState()
             }
+            Mode.TAP -> hitStroke(lastX, lastY)?.let(onStrokeTap)
             Mode.MOVE_SEL -> if (selDx != 0f || selDy != 0f) {
                 val op = Op.Move(ArrayList(sel), selDx, selDy); apply(op); undos().addLast(op); redos().clear()
                 selBounds.offset(selDx, selDy); selDx = 0f; selDy = 0f; notifyState(); onChange()
@@ -314,6 +327,16 @@ class InkView(context: Context) : View(context) {
             else -> {}
         }
         invalidate()
+    }
+
+    private fun hitStroke(x: Float, y: Float): Stroke? {
+        val r = 24f / scale
+        for (s in page!!.strokes.asReversed()) {
+            val b = s.bounds; if (x < b.left - r || x > b.right + r || y < b.top - r || y > b.bottom + r) continue
+            val lim = (r + s.width / 2).let { it * it }; var j = 0
+            while (j < s.pts.size) { val dx = s.pts[j] - x; val dy = s.pts[j + 1] - y; if (dx * dx + dy * dy <= lim) return s; j += 3 }
+        }
+        return null
     }
 
     private fun cancelDraw() {

@@ -58,6 +58,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var hasSel by remember { mutableStateOf(false) }
     var dirty by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    val audio = remember { AudioCtl(ctx, repo.dir, nb) }
+    val micPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) runCatching { audio.startRec() } }
     var wheelAt by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     var learning by remember { mutableStateOf(false) }
     var learned by remember { mutableIntStateOf(prefs.getInt("tapCode", -1)) }
@@ -69,6 +72,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
+        view.tapMode = audio.open
+        view.replayTime = audio.replayTime()
+        view.onStrokeTap = { s -> audio.jumpTo(s.t) }
         view.onWheel = { x, y -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(x, y) else null }
         view.onStylusButton = { code ->
             if (learning) { learned = code; prefs.edit().putInt("tapCode", code).apply(); learning = false; true } else false
@@ -92,7 +98,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 true
             }
         }
-        onDispose { StylusKeys.handler = null
+        onDispose { StylusKeys.handler = null; audio.release()
  save(); prefs.edit().putFloat("penW", penW).putFloat("hlW", hlW).putBoolean("stylusOnly", stylusOnly).apply() } }
 
     Scaffold(
@@ -101,6 +107,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 title = { Text(nb.title, maxLines = 1, style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Atrás") } },
                 actions = {
+                    IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
+                        Icon(if (audio.recording) Icons.Outlined.StopCircle else Icons.Outlined.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
+                    if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(Icons.Outlined.Headphones, "Reproducir") }
                     IconButton(view::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
                     IconButton(view::redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
                     IconButton({ if (pageIdx > 0) pageIdx-- }, enabled = pageIdx > 0) { Icon(Icons.Outlined.ChevronLeft, "Anterior") }
@@ -138,6 +147,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     view::undo, view::redo) { wheelAt = null }
             }
             Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
                 AnimatedVisibility(showWidth && (tool == Tool.PEN || tool == Tool.HIGHLIGHTER)) {
                     Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 8.dp, modifier = Modifier.padding(bottom = 10.dp).width(260.dp)) {
                         Column(Modifier.padding(16.dp, 8.dp)) {
