@@ -22,9 +22,9 @@ class Repo(private val ctx: Context) {
 
     fun load(id: String): Notebook = json.decodeFromString(File(dir, "$id.json").readText())
 
-    fun create(title: String, cover: Int, t: Template): String {
+    fun create(title: String, cover: Int, t: Template, pattern: Int = 0, folder: String = ""): String {
         val nb = Notebook(UUID.randomUUID().toString(), title, cover, t, System.currentTimeMillis(),
-            mutableListOf(Page(System.nanoTime(), t)))
+            mutableListOf(Page(System.nanoTime(), t)), pattern = pattern, folder = folder)
         write(nb.id, json.encodeToString(nb), meta(nb), null)
         return nb.id
     }
@@ -38,6 +38,10 @@ class Repo(private val ctx: Context) {
 
     fun rename(id: String, title: String) = io.execute {
         runCatching { val nb = load(id); nb.title = title; write(id, json.encodeToString(nb), meta(nb), null) }
+    }
+
+    fun setFolder(id: String, folder: String) = io.execute {
+        runCatching { val nb = load(id); nb.folder = folder; write(id, json.encodeToString(nb), meta(nb), null) }
     }
 
     fun delete(id: String) = io.execute {
@@ -69,7 +73,7 @@ class Repo(private val ctx: Context) {
     }
 
     private fun meta(nb: Notebook) = NotebookMeta(nb.id, nb.title, nb.cover, nb.updated, nb.pages.size,
-        nb.pages.joinToString(" ") { p -> p.ocr + " " + p.items.joinToString(" ") { it.text } }.take(6000))
+        nb.pages.joinToString(" ") { p -> p.ocr + " " + p.items.joinToString(" ") { it.text } }.take(6000), nb.pattern, nb.folder)
 
     @Synchronized private fun write(id: String, s: String, m: NotebookMeta, thumb: Bitmap?) {
         val tmp = File(dir, "$id.tmp"); tmp.writeText(s); tmp.renameTo(File(dir, "$id.json"))

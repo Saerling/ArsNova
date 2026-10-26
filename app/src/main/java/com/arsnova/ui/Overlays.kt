@@ -37,8 +37,15 @@ fun PencilArc(at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, o
     var box by remember { mutableStateOf(IntSize.Zero) }
     val r = with(d) { 120.dp.toPx() }
     Box(Modifier.fillMaxSize().onSizeChanged { box = it }.pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
-        val cx = at.x.coerceIn(r, (box.width - r).coerceAtLeast(r)); val cy = at.y.coerceIn(r + 40f, (box.height - 60f).coerceAtLeast(r))
+        if (box.width == 0) return@Box
+        val minY = r + 40f; val cx = at.x.coerceIn(r, maxOf(box.width - r, r)); val cy = at.y.coerceIn(minY, maxOf(box.height - 60f, minY))
         val n = slots.size
+        val bg = remember { Animatable(0f) }
+        LaunchedEffect(Unit) { bg.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 400f)) }
+        val dr = r + with(d) { 46.dp.toPx() }
+        Box(Modifier.offset { IntOffset((cx - dr).roundToInt(), (cy - dr).roundToInt()) }.size(with(d) { (dr * 2).toDp() })
+            .graphicsLayer { scaleX = bg.value; scaleY = bg.value; alpha = bg.value }.clip(CircleShape)
+            .background(Brush.radialGradient(listOf(Color(0xF21C1C1E), Color(0xE62C2C2E)))).border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape))
         slots.forEachIndexed { i, s ->
             val a = Math.toRadians(200.0 + 140.0 * i / (n - 1).coerceAtLeast(1))
             val anim = remember { Animatable(0f) }
@@ -165,9 +172,9 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
 /** Menú ⋯ de la barra con interruptores (iPadOS). */
 @Composable
 fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin: (Boolean) -> Unit, onFinger: (Boolean) -> Unit, onBeautify: (Boolean) -> Unit,
-                onLines: () -> Unit, onPencil: () -> Unit, onDismiss: () -> Unit) {
+                onLines: () -> Unit, onPencil: () -> Unit, anchor: Alignment = Alignment.BottomCenter, pad: PaddingValues = PaddingValues(bottom = 96.dp), onDismiss: () -> Unit) {
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
-        Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 16.dp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
+        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 16.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.padding(vertical = 6.dp)) {
                 @Composable fun T(l: String, v: Boolean, on: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().clickable { on(!v) }.padding(18.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(l, Modifier.weight(1f)); Switch(v, on) }

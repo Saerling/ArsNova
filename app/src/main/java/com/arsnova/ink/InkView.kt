@@ -140,6 +140,13 @@ class InkView(context: Context) : View(context) {
         cacheDirty = true; invalidate(); onChange()
     }
 
+    var topInset = 0f
+    fun addSticker(e: String) {
+        val p = page ?: return; val c = toPage(width / 2f, height / 2f)
+        val it = Item(System.nanoTime(), 0, c[0] - 90f, c[1] - 90f, 220f, text = e, size = 150f)
+        p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
+    }
+
     fun addImage(file: String, bw: Int, bh: Int) {
         val p = page ?: return
         val c = toPage(width / 2f, height / 2f); val w = minOf(700f, Ink.PAGE_W * 0.6f); val h = w * bh / bw
@@ -188,7 +195,7 @@ class InkView(context: Context) : View(context) {
     private fun doFit() {
         val m = 16f * resources.displayMetrics.density
         scale = ((width - 2 * m) / Ink.PAGE_W).coerceAtMost((height * 1.6f) / Ink.PAGE_H).coerceAtLeast(0.1f)
-        tx = (width - Ink.PAGE_W * scale) / 2; ty = m; updateMatrix(); fitted = true
+        tx = (width - Ink.PAGE_W * scale) / 2; ty = m + topInset; updateMatrix(); fitted = true
     }
     private fun toPage(x: Float, y: Float): FloatArray { pt[0] = x; pt[1] = y; inv.mapPoints(pt); return pt }
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { cache?.recycle(); cache = null; if (!fitted || ow == 0) fitted = false; cacheDirty = true }

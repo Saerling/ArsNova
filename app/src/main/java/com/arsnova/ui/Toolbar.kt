@@ -68,46 +68,56 @@ val BigPalette: List<Int> = buildList {
     for (i in 0 until 12) { val g = (255 * i / 11f).toInt(); add(android.graphics.Color.rgb(g, g, g)) }
 }
 
-private fun DrawScope.toolArt(s: Slot, sel: Boolean) {
-    val w = size.width; val bw = w * 0.56f; val x0 = (w - bw) / 2; val top = size.height * 0.36f
+private fun DrawScope.toolArt(s: Slot, dark: Boolean) {
+    val w = size.width; val bw = w * 0.52f; val x0 = (w - bw) / 2; val x1 = x0 + bw; val cx = w / 2
+    val top = size.height * 0.42f; val tipH = size.height * 0.30f
     val ink = Color(s.color).copy(alpha = 1f)
-    val body = Brush.horizontalGradient(listOf(Color(0xFFDCD8D0), Color(0xFFFFFFFF), Color(0xFFE6E2DA)), x0, x0 + bw)
+    val line = if (dark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.28f)
+    val halo = DStroke(1.2.dp.toPx(), join = StrokeJoin.Round)
+    val barrel = Brush.horizontalGradient(listOf(Color(0xFFD9D5CD), Color(0xFFFFFFFF), Color(0xFFF2EFE9), Color(0xFFCFCAC1)), x0, x1)
+    fun barrelAt(y: Float) { drawRoundRect(barrel, Offset(x0, y), Size(bw, size.height), CornerRadius(3.dp.toPx())); drawRoundRect(line, Offset(x0, y), Size(bw, size.height), CornerRadius(3.dp.toPx()), style = halo) }
+    fun shape(p: Path, b: Brush) { drawPath(p, b); drawPath(p, line, style = halo) }
+    fun shape(p: Path, c: Color) { drawPath(p, c); drawPath(p, line, style = halo) }
     when (s.tool) {
-        Tool.ERASER -> {
-            drawRoundRect(Color(0xFFF4A6A6), Offset(x0, top - 10.dp.toPx()), Size(bw, 22.dp.toPx()), CornerRadius(bw / 2.2f))
-            drawRect(body, Offset(x0, top + 8.dp.toPx()), Size(bw, size.height))
-            return
-        }
-        Tool.LASSO -> {
-            drawCircle(Color.Gray, bw * 0.55f, Offset(w / 2, top - 4.dp.toPx()), style = DStroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 5f))))
-            drawRect(body, Offset(x0, top + 8.dp.toPx()), Size(bw, size.height)); return
-        }
+        Tool.ERASER -> { val p = Path().apply { addRoundRect(androidx.compose.ui.geometry.RoundRect(x0, top - tipH * 0.7f, x1, top + 6.dp.toPx(), CornerRadius(bw / 2, bw / 2), CornerRadius(bw / 2, bw / 2), CornerRadius.Zero, CornerRadius.Zero)) }
+            shape(p, Brush.verticalGradient(listOf(Color(0xFFF7B5B5), Color(0xFFE88E8E)))); barrelAt(top + 6.dp.toPx()); return }
+        Tool.LASSO -> { barrelAt(top)
+            val p = Path().apply { moveTo(x0, top); lineTo(cx, top - tipH); lineTo(x1, top); close() }; shape(p, Color(0xFFEDEAE4))
+            drawLine(line, Offset(cx, top - tipH), Offset(cx, top - tipH * 0.2f), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))); return }
         else -> {}
     }
-    val tipH = 18.dp.toPx()
-    val cone = Path().apply { moveTo(x0, top); lineTo(w / 2 - bw * 0.12f, top - tipH); lineTo(w / 2 + bw * 0.12f, top - tipH); lineTo(x0 + bw, top); close() }
+    val cone = Path().apply { moveTo(x0, top); lineTo(cx - bw * 0.14f, top - tipH); lineTo(cx + bw * 0.14f, top - tipH); lineTo(x1, top); close() }
     when (s.style) {
-        1 -> { // pluma: plumín metálico con ranura
-            drawPath(cone, Brush.horizontalGradient(listOf(Color(0xFF9A9A9A), Color(0xFFE8E8E8), Color(0xFF8A8A8A)), x0, x0 + bw))
-            drawLine(Color(0xFF555555), Offset(w / 2, top - tipH), Offset(w / 2, top - 4.dp.toPx()), 1.dp.toPx())
-            drawCircle(ink, 2.dp.toPx(), Offset(w / 2, top - tipH))
-        }
-        2 -> { drawPath(cone, Color(0xFFE9C9A0)); drawPath(Path().apply { moveTo(w / 2 - bw * 0.2f, top - tipH * 0.55f); lineTo(w / 2, top - tipH - 2); lineTo(w / 2 + bw * 0.2f, top - tipH * 0.55f); close() }, ink) }
-        3 -> { drawPath(Path().apply { moveTo(x0 + bw * 0.15f, top); quadraticTo(w / 2, top - tipH * 2.2f, x0 + bw * 0.85f, top); close() }, ink) }
-        5, 6 -> { drawRect(ink, Offset(x0 + bw * 0.12f, top - tipH * 0.7f), Size(bw * 0.76f, tipH * 0.7f)); drawPath(Path().apply { moveTo(x0 + bw * 0.12f, top - tipH * 0.7f); lineTo(x0 + bw * 0.88f, top - tipH * 1.05f); lineTo(x0 + bw * 0.88f, top - tipH * 0.7f); close() }, ink) }
-        else -> { drawPath(cone, Color(0xFFB9B5AD)); drawCircle(ink, 2.2.dp.toPx(), Offset(w / 2, top - tipH)) }
+        1 -> { val nib = Path().apply { moveTo(x0 + bw * 0.08f, top); cubicTo(x0, top - tipH * 0.5f, cx - bw * 0.1f, top - tipH * 0.85f, cx, top - tipH * 1.05f)
+                cubicTo(cx + bw * 0.1f, top - tipH * 0.85f, x1, top - tipH * 0.5f, x1 - bw * 0.08f, top); close() }
+            shape(nib, Brush.horizontalGradient(listOf(Color(0xFF8E8E93), Color(0xFFF2F2F7), Color(0xFF8E8E93)), x0, x1))
+            drawLine(Color(0xFF3A3A3C), Offset(cx, top - tipH * 1.02f), Offset(cx, top - tipH * 0.35f), 1.dp.toPx())
+            drawCircle(Color(0xFF3A3A3C), 1.6.dp.toPx(), Offset(cx, top - tipH * 0.32f)); drawCircle(ink, 2.dp.toPx(), Offset(cx, top - tipH * 1.02f)) }
+        2 -> { shape(cone, Brush.horizontalGradient(listOf(Color(0xFFD9B48A), Color(0xFFF3DCBE), Color(0xFFCFA67A)), x0, x1))
+            shape(Path().apply { moveTo(cx - bw * 0.22f, top - tipH * 0.6f); lineTo(cx, top - tipH - 1.dp.toPx()); lineTo(cx + bw * 0.22f, top - tipH * 0.6f); close() }, ink) }
+        3 -> { drawRect(Brush.horizontalGradient(listOf(Color(0xFF9A9A9A), Color(0xFFE5E5E5), Color(0xFF8A8A8A)), x0, x1), Offset(x0 + bw * 0.08f, top - tipH * 0.35f), Size(bw * 0.84f, tipH * 0.35f))
+            shape(Path().apply { moveTo(x0 + bw * 0.12f, top - tipH * 0.35f); cubicTo(x0 + bw * 0.1f, top - tipH * 0.9f, cx - 1f, top - tipH * 1.1f, cx, top - tipH * 1.2f)
+                cubicTo(cx + 1f, top - tipH * 1.1f, x1 - bw * 0.1f, top - tipH * 0.9f, x1 - bw * 0.12f, top - tipH * 0.35f); close() }, ink) }
+        5, 6 -> { shape(Path().apply { moveTo(x0, top); lineTo(x0 + bw * 0.12f, top - tipH * 0.45f); lineTo(x1 - bw * 0.12f, top - tipH * 0.45f); lineTo(x1, top); close() }, Color(0xFFEDEAE4))
+            shape(Path().apply { moveTo(x0 + bw * 0.14f, top - tipH * 0.45f); lineTo(x0 + bw * (if (s.style == 6) 0.14f else 0.3f), top - tipH * 0.95f); lineTo(x1 - bw * 0.14f, top - tipH * (if (s.style == 6) 1.15f else 0.95f)); lineTo(x1 - bw * 0.14f, top - tipH * 0.45f); close() }, ink) }
+        4 -> { shape(cone, Brush.horizontalGradient(listOf(Color(0xFFE5E2DC), Color.White, Color(0xFFDAD6CF)), x0, x1))
+            drawLine(ink, Offset(cx, top - tipH), Offset(cx, top - tipH * 0.75f), 2.2.dp.toPx(), StrokeCap.Round) }
+        else -> { shape(cone, Brush.horizontalGradient(listOf(Color(0xFFE5E2DC), Color.White, Color(0xFFDAD6CF)), x0, x1))
+            drawCircle(Color(0xFF8E8E93), 1.8.dp.toPx(), Offset(cx, top - tipH)); drawCircle(ink, 1.2.dp.toPx(), Offset(cx, top - tipH)) }
     }
-    drawRect(body, Offset(x0, top), Size(bw, size.height))
-    drawRect(ink, Offset(x0, top + 14.dp.toPx()), Size(bw, 5.dp.toPx()))
+    barrelAt(top)
+    drawRect(ink, Offset(x0, top + 10.dp.toPx()), Size(bw, 4.dp.toPx()))
+    if (s.style == 2) drawRect(Color(0xFF2C2C2E), Offset(x0, top + 16.dp.toPx()), Size(bw, 1.5.dp.toPx()))
 }
 
 @Composable
-fun ToolArt(s: Slot, sel: Boolean, onClick: () -> Unit) {
-    val lift by animateDpAsState(if (sel) 0.dp else 12.dp, spring(dampingRatio = 0.6f), label = "lift")
-    Box(Modifier.width(38.dp).height(56.dp).clipToBounds().clickable(onClick = onClick)) {
-        Canvas(Modifier.fillMaxSize().offset(y = lift)) { toolArt(s, sel) }
-        if (sel && s.tool == Tool.PEN || sel && s.tool == Tool.HIGHLIGHTER)
-            Text(s.width.toInt().toString(), Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFF55524D))
+fun ToolArt(s: Slot, sel: Boolean, label: Boolean = true, onClick: () -> Unit) {
+    val lift by animateDpAsState(if (sel) 0.dp else 14.dp, spring(dampingRatio = 0.55f, stiffness = 380f), label = "lift")
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.3f
+    Box(Modifier.width(40.dp).height(60.dp).clipToBounds().clickable(onClick = onClick)) {
+        Canvas(Modifier.fillMaxSize().offset(y = lift)) { toolArt(s, dark) }
+        if (label && sel && (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER))
+            Text(s.width.toInt().toString(), Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFF3A3A3C))
     }
 }
 
@@ -130,8 +140,8 @@ fun AppleToolbar(
         IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
         IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
         slots.forEachIndexed { i, s ->
-            if (vertical) Box(Modifier.size(56.dp, 38.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.requiredSize(38.dp, 56.dp).graphicsLayer { rotationZ = if (dock > 0) 90f else -90f }) { ToolArt(s, i == active) { onSelect(i) } }
+            if (vertical) Box(Modifier.size(60.dp, 40.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.requiredSize(40.dp, 60.dp).graphicsLayer { rotationZ = if (dock > 0) 90f else -90f }) { ToolArt(s, i == active, label = false) { onSelect(i) } }
             } else Box(Modifier.padding(top = 6.dp)) { ToolArt(s, i == active) { onSelect(i) } }
         }
         Spacer(Modifier.size(8.dp))

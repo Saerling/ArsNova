@@ -103,6 +103,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
     var palMenu by remember { mutableStateOf(false) }
+    var stickers by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf(false) }
     var autoMin by remember { mutableStateOf(prefs.getBoolean("autoMin", false)) }
     var beautify by remember { mutableStateOf(prefs.getBoolean("beautify", true)) }
@@ -184,9 +185,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(nb.title, maxLines = 1, style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Atrás") } },
-                actions = {
+                title = { Pill { Text(nb.title, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), maxLines = 1, style = MaterialTheme.typography.titleMedium) } },
+                navigationIcon = { Pill(Modifier.padding(start = 8.dp)) { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Atrás") } } },
+                actions = { Pill(Modifier.padding(end = 8.dp)) {
                     IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
                         Icon(if (audio.recording) Icons.Outlined.StopCircle else Icons.Outlined.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
                     if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(Icons.Outlined.Headphones, "Reproducir") }
@@ -212,12 +213,14 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) })
                         DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) })
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
             )
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
+        val topPx = with(androidx.compose.ui.platform.LocalDensity.current) { pad.calculateTopPadding().toPx() }
+        SideEffect { if (view.topInset != topPx) { view.topInset = topPx; view.fit() } }
+        Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
             if (pages) PageGrid(nb, pageIdx, { pageIdx = it; pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); pageIdx = nb.pages.size - 1; dirty++; pages = false }) { pages = false }
             editing?.let { (item, isNew) ->
@@ -264,9 +267,19 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             wheelAt?.let { at -> PencilArc(at, slots, active, swatches, { pick(it); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
-                { palMenu = false; lines = true }, { palMenu = false; showSettings = true }) { palMenu = false }
+                { palMenu = false; lines = true }, { palMenu = false; showSettings = true },
+                when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter },
+                when (dock) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); else -> PaddingValues(bottom = 98.dp) }) { palMenu = false }
+            if (stickers) AlertDialog({ stickers = false }, confirmButton = { TextButton({ stickers = false }) { Text("Cerrar") } }, title = { Text("Stickers") }, text = {
+                Column { "⭐️🌟✨💡📌📎✏️📚📝✅❌❗️❓💯🔥❤️💙💚💛💜🌸🌿🍀☀️🌙⚡️🎯🎓🧪🧬⚗️🔬📐📏🧠💭🗓️⏰🎉👍👀🙌".let { str ->
+                    val list = java.text.BreakIterator.getCharacterInstance().let { bi -> bi.setText(str); var st = bi.first(); val out = ArrayList<String>(); var en = bi.next(); while (en != java.text.BreakIterator.DONE) { out += str.substring(st, en); st = en; en = bi.next() }; out }
+                    list.chunked(8).forEach { row -> Row { row.forEach { e -> Text(e, Modifier.weight(1f).clickable { view.addSticker(e); stickers = false }.padding(6.dp), style = MaterialTheme.typography.headlineSmall) } } }
+                } }
+            })
             if (lines) LinesSheet(nb.pages[pageIdx].template, { t -> nb.pages.forEach { it.template = t }; view.refresh(); dirty++; lines = false }) { lines = false }
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (dock == 0) 96.dp else 14.dp, start = 12.dp, end = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            val panelAlign = when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter }
+            val panelPad = when (dock) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); else -> PaddingValues(bottom = 98.dp) }
+            Column(Modifier.align(panelAlign).navigationBarsPadding().padding(panelPad).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
                 AnimatedVisibility(picker != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f)) {
@@ -323,6 +336,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Outlined.Image, null) })
                             DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); pageIdx++; dirty++ }, leadingIcon = { Icon(Icons.Outlined.NoteAdd, null) })
                             DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) })
+                            DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(Icons.Outlined.EmojiEmotions, null) })
                         }
                     }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false }, dock = dock, handle = handle) }
             }

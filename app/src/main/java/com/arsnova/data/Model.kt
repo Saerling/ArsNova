@@ -79,10 +79,12 @@ class Notebook(
     var updated: Long,
     val pages: MutableList<Page>,
     val recs: MutableList<Rec> = mutableListOf(),
+    var pattern: Int = 0,
+    var folder: String = "",
 )
 
 @Serializable
 class Rec(val file: String, val start: Long, var dur: Long = 0)
 
 @Serializable
-data class NotebookMeta(val id: String, val title: String, val cover: Int, val updated: Long, val pages: Int, val text: String = "")
+data class NotebookMeta(val id: String, val title: String, val cover: Int, val updated: Long, val pages: Int, val text: String = "", val pattern: Int = 0, val folder: String = "")
