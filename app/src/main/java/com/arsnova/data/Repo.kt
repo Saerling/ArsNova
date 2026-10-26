@@ -22,9 +22,9 @@ class Repo(private val ctx: Context) {
 
     fun load(id: String): Notebook = json.decodeFromString(File(dir, "$id.json").readText())
 
-    fun create(title: String, cover: Int, t: Template, pattern: Int = 0, folder: String = ""): String {
+    fun create(title: String, cover: Int, t: Template, pattern: Int = 0, folder: String = "", paper: Int = -1, spacing: Float = 0f): String {
         val nb = Notebook(UUID.randomUUID().toString(), title, cover, t, System.currentTimeMillis(),
-            mutableListOf(Page(System.nanoTime(), t)), pattern = pattern, folder = folder)
+            mutableListOf(Page(System.nanoTime(), t, paper = paper, spacing = spacing)), pattern = pattern, folder = folder)
         write(nb.id, json.encodeToString(nb), meta(nb), null)
         return nb.id
     }

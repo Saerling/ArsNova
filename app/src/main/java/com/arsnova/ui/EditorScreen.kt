@@ -98,7 +98,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     val tool = if (textTool) Tool.TEXT else slot.tool
     val color = slot.color
     fun updSlot(s: Slot) { slots = slots.toMutableList().also { it[active] = s }; Slots.save(prefs, slots) }
-    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
+    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings && slots[i].tool != Tool.LASSO else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
     fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; updSlot(slots[k].copy(color = c)) }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
@@ -115,7 +115,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     fun onDoubleTap() {
         val now = System.currentTimeMillis(); if (now - lastTap < 450) return; lastTap = now
         when (prefs.getInt("tapAction", 0)) {
-            0 -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(if (view.hoverX >= 0) view.hoverX else view.width / 2f, if (view.hoverY >= 0) view.hoverY else view.height / 2f) else null
+            0 -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(if (view.lastPenX >= 0) view.lastPenX else view.width / 2f, if (view.lastPenY >= 0) view.lastPenY else view.height / 2f) else null
             1 -> { val er = slots.indexOfFirst { it.tool == Tool.ERASER }; if (active == er) active = prevSlot else { prevSlot = active; active = er } }
             2 -> view.undo()
         }
@@ -146,7 +146,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
         view.onPage = { pageIdx = it }
-        view.onNeedPage = { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); view.pagesChanged(); dirty++ }
+        view.onNeedPage = { nb.pages.add(nb.pages.last().next()); view.pagesChanged(); dirty++ }
         view.onInking = { inking = it; if (it) showSettings = false }
         view.onTextEdit = { it, isNew -> editing = it to isNew }
         view.tapMode = audio.open
@@ -189,7 +189,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
                     IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Más") }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++; menu = false },
+                        DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++; menu = false },
                             leadingIcon = { Icon(Icons.Rounded.NoteAdd, null) })
                         if (nb.pages.size > 1) DropdownMenuItem({ Text("Eliminar página") }, {
                             nb.pages.removeAt(pageIdx); pageIdx = pageIdx.coerceAtMost(nb.pages.size - 1); view.refresh(); view.pagesChanged(); dirty++; menu = false
@@ -215,7 +215,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         SideEffect { if (view.topInset != topPx) { view.topInset = topPx; view.fit() } }
         Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
-            if (pages) PageGrid(nb, pageIdx, { view.scrollToPage(it); pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; pages = false }) { pages = false }
+            if (pages) PageGrid(nb, pageIdx, { view.scrollToPage(it); pages = false }, { nb.pages.add(nb.pages.last().next()); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; pages = false }) { pages = false }
             editing?.let { (item, isNew) ->
                 var txt by remember(item) { mutableStateOf(item.text) }
                 var size by remember(item) { mutableFloatStateOf(item.size) }
@@ -257,7 +257,11 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     TextButton({ learning = false }) { Text("Cancelar", color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
-            wheelAt?.let { at -> PencilArc(at, slots, active, swatches, { pick(it); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
+            wheelAt?.let { at ->
+                val dialSlots = Slots.penOrder.map { slots[0].copy(style = it) } + slots.drop(1)
+                val dialActive = if (active == 0) Slots.penOrder.indexOf(slots[0].style).coerceAtLeast(0) else 5 + active
+                PencilArc(at, dialSlots, dialActive, swatches, { j -> textTool = false; if (j < 6) { active = 0; updSlot(slots[0].copy(style = Slots.penOrder[j])) } else { active = j - 5 }
+                    prefs.edit().putInt("slot", active).apply(); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
                 { palMenu = false; lines = true }, { palMenu = false; showSettings = true },
@@ -327,7 +331,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         DropdownMenu(open, close) {
                             DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Rounded.Image, null) })
-                            DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++ }, leadingIcon = { Icon(Icons.Rounded.NoteAdd, null) })
+                            DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++ }, leadingIcon = { Icon(Icons.Rounded.NoteAdd, null) })
                             DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
                             DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(Icons.Rounded.EmojiEmotions, null) })
                         }

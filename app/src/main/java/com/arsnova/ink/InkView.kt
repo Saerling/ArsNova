@@ -49,6 +49,8 @@ class InkView(context: Context) : View(context) {
     var onWheel: (Float, Float) -> Unit = { _, _ -> }
     /** Modo aprender: recibe el código de botón del lápiz. Devuelve true si lo consumió. */
     var onStylusButton: (Int) -> Boolean = { false }
+    var lastPenX = -1f; private set
+    var lastPenY = -1f; private set
     var hoverX = -1f; private set
     var hoverY = -1f; private set
     private val predictor = MotionEventPredictor.newInstance(this)
@@ -254,7 +256,7 @@ class InkView(context: Context) : View(context) {
         }
         if (!pc.valid) {
             val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); val on = p === page
-            Ink.drawPaper(cc, p.template, p.bg)
+            Ink.drawPaper(cc, p)
             for (it in p.items) if (!on || it !in selIt) Ink.drawItem(cc, it)
             val selSet = if (on) sel.toHashSet() else emptySet()
             for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
@@ -338,6 +340,7 @@ class InkView(context: Context) : View(context) {
 
     private fun begin(e: MotionEvent, i: Int) {
         pid = e.getPointerId(i); scroller.forceFinished(true); activateAt(e.getY(i))
+        if (isStylus) { lastPenX = e.getX(i); lastPenY = e.getY(i) }
         val eraserBtn = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER || (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
         val t = if (eraserBtn) Tool.ERASER else tool
         val sx = e.getX(i); val sy = e.getY(i); val q = toPage(sx, sy); val x = q[0]; val y = q[1]
@@ -375,6 +378,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun point(sx: Float, sy: Float, pr: Float) {
+        if (isStylus) { lastPenX = sx; lastPenY = sy }
         val q = toPage(sx, sy); val x = q[0]; val y = q[1]
         when (mode) {
             Mode.DRAW -> {
@@ -484,7 +488,7 @@ class InkView(context: Context) : View(context) {
     override fun onHoverEvent(e: MotionEvent): Boolean {
         if (!stylusAt(e, 0)) return super.onHoverEvent(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hoverX = e.x; hoverY = e.y }
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hoverX = e.x; hoverY = e.y; lastPenX = e.x; lastPenY = e.y }
             MotionEvent.ACTION_HOVER_EXIT -> hoverX = -1f
         }
         invalidate(); return true

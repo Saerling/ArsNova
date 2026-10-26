@@ -15,7 +15,7 @@ import java.nio.ByteOrder
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO, TEXT }
 
-@Serializable enum class Template { BLANK, LINED, GRID, DOTS, LINED_N, LINED_W, GRID_S, GRID_L }
+@Serializable enum class Template { BLANK, LINED, GRID, DOTS, LINED_N, LINED_W, GRID_S, GRID_L, MARGIN, CORNELL, TODO, WEEKLY, MUSIC, HANDWRITING }
 
 /** Puntos empaquetados x,y,presión -> base64 binario (≈4x más compacto que JSON numérico). */
 object PtsSerializer : KSerializer<FloatArray> {
@@ -60,7 +60,9 @@ class Stroke(
 
 @Serializable
 class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null,
-    val items: MutableList<Item> = mutableListOf(), var ocr: String = "")
+    val items: MutableList<Item> = mutableListOf(), var ocr: String = "", var paper: Int = -1, var spacing: Float = 0f) {
+    fun next() = Page(System.nanoTime(), template, paper = paper, spacing = spacing)
+}
 
 /** Elemento no-tinta: 0 = texto, 1 = imagen. */
 @Serializable

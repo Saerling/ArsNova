@@ -2,6 +2,9 @@ package com.arsnova.ui
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
@@ -119,7 +122,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
         Column { (listOf("") + folders).forEach { f -> Text(f.ifEmpty { "Sin carpeta" }, Modifier.fillMaxWidth().clickable {
             repo.setFolder(m.id, f); items = items.map { if (it.id == m.id) it.copy(folder = f) else it }; moving = null }.padding(12.dp)) } } }) }
     if (importing) AlertDialog({}, confirmButton = {}, title = { Text("Importando PDF…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) })
-    if (creating) NewNotebookDialog({ creating = false }) { t, c, tpl, pat -> creating = false; onOpen(repo.create(t, c, tpl, pat, folder)) }
+    if (creating) NewNotebookDialog({ creating = false }) { t, c, tpl, pat, pap, sp -> creating = false; onOpen(repo.create(t, c, tpl, pat, folder, pap, sp)) }
     renaming?.let { m ->
         var t by remember { mutableStateOf(m.title) }
         AlertDialog({ renaming = null }, title = { Text("Renombrar") },
@@ -152,56 +155,96 @@ private fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
     }
 }
 
-/** Ventana de nueva nota estilo Samsung Notes: portada con patrón + estilo de página. */
+private val PaperColors = listOf(0xFFFFFFFF, 0xFFF3F2EE, 0xFFFBF3E2, 0xFFE4E4E6, 0xFF1C1C1E).map { it.toInt() }
+private val TemplateCats = listOf(
+    "Base" to listOf(Template.BLANK to "En blanco", Template.LINED_N to "Línea estrecha", Template.LINED to "Línea", Template.LINED_W to "Línea ancha",
+        Template.GRID_S to "Mini cuadro", Template.GRID to "Cuadro", Template.GRID_L to "Cuadro grande", Template.DOTS to "Puntos"),
+    "Estudio" to listOf(Template.CORNELL to "Cornell", Template.MARGIN to "Con margen", Template.HANDWRITING to "Caligrafía"),
+    "Plan" to listOf(Template.TODO to "Tareas", Template.WEEKLY to "Semanal"),
+    "Música" to listOf(Template.MUSIC to "Pentagrama"))
+
+/** Pantalla "Crear nota" (estilo Huawei/Samsung): tapa + papel, plantillas por categoría, color de papel y espacio de línea. */
 @Composable
-private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Template, Int) -> Unit) {
+private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Template, Int, Int, Float) -> Unit) {
     val ctxT = androidx.compose.ui.platform.LocalContext.current
+    val cs = MaterialTheme.colorScheme
     var title by remember { mutableStateOf("") }
     var cover by remember { mutableIntStateOf(CoverColors[0]) }
     var pattern by remember { mutableIntStateOf(1) }
-    var tpl by remember { mutableStateOf(Template.entries[ctxT.getSharedPreferences("ars", 0).getInt("tpl", 1)]) }
-    var tab by remember { mutableIntStateOf(0) }
+    var coverOn by remember { mutableStateOf(true) }
+    var tpl by remember { mutableStateOf(Template.entries[ctxT.getSharedPreferences("ars", 0).getInt("tpl", 1).coerceIn(0, Template.entries.size - 1)]) }
+    var paper by remember { mutableIntStateOf(PaperColors[0]) }
+    var lsp by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(1) }
+    var cat by remember { mutableIntStateOf(0) }
+    val spacing = if (lsp == 0) 0f else 30f + lsp * 8f
+    @Composable fun thumb(t: Template, scale: Float) = remember(t, paper, lsp) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, t, paper = paper, spacing = spacing), scale).asImageBitmap() }
     androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), modifier = Modifier.padding(20.dp).widthIn(max = 520.dp)) {
-            Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Estilo de nota", style = MaterialTheme.typography.titleMedium)
-                Row(Modifier.padding(vertical = 16.dp).height(170.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    val sh = RoundedCornerShape(6.dp, 14.dp, 14.dp, 6.dp)
-                    Box(Modifier.fillMaxHeight().aspectRatio(0.75f).shadow(8.dp, sh).clip(sh).background(Color.White).clickable { tab = 0 }
-                        .border(if (tab == 0) 3.dp else 0.dp, Brand, sh)) { if (pattern > 0) CoverArt(cover, pattern, Modifier.fillMaxSize()) else Box(Modifier.fillMaxHeight().width(10.dp).background(Color(cover))) }
-                    val bmp = remember(tpl) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, tpl), 0.09f).asImageBitmap() }
-                    Image(bmp, null, Modifier.fillMaxHeight().aspectRatio(0.75f).shadow(8.dp, RoundedCornerShape(6.dp)).clip(RoundedCornerShape(6.dp)).clickable { tab = 1 }
-                        .border(if (tab == 1) 3.dp else 0.dp, Brand, RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
+        Ambient(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onDismiss) { Text("Cancelar") }
+                Text("Crear nota", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Button({ onCreate(title.ifBlank { "Sin título" }, cover, tpl, if (coverOn) pattern else 0, paper, spacing) }, shape = RoundedCornerShape(50)) { Text("Crear") }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(220.dp), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
+                @Composable fun Card(i: Int, label: String, body: @Composable () -> Unit) = Column(Modifier.fillMaxHeight().clip(RoundedCornerShape(20.dp))
+                    .border(if (tab == i) 2.dp else 1.dp, if (tab == i) cs.primary else cs.outline.copy(alpha = 0.4f), RoundedCornerShape(20.dp)).clickable { tab = i }.padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.weight(1f).aspectRatio(0.72f).shadow(8.dp, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp))) { body() }
+                    Text(label, Modifier.padding(top = 8.dp), color = if (tab == i) cs.primary else cs.onBackground)
                 }
-                Pill { listOf("Portada", "Página").forEachIndexed { i, l ->
-                    val on = tab == i
-                    Box(Modifier.padding(3.dp).clip(RoundedCornerShape(50)).background(if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent).clickable { tab = i }.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                        Text(l, color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface) }
-                } }
-                Spacer(Modifier.height(14.dp))
-                if (tab == 0) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CoverColors.forEach { c -> Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).clickable { cover = c }
-                            .then(if (c == cover) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)) }
+                Card(0, "Tapa") { if (coverOn && pattern > 0) CoverArt(cover, pattern, Modifier.fillMaxSize()) else Box(Modifier.fillMaxSize().background(Color(paper))) { Box(Modifier.fillMaxHeight().width(8.dp).background(Color(cover))) } }
+                Card(1, "Papel") { Image(thumb(tpl, 0.12f), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                Surface(Modifier.fillMaxHeight().widthIn(max = 380.dp).weight(1f, false), shape = RoundedCornerShape(20.dp), color = cs.surface.copy(alpha = 0.8f)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), placeholder = { Text("Título de la nota") }, singleLine = true, shape = RoundedCornerShape(50))
+                        Row(verticalAlignment = Alignment.CenterVertically) { Text("Tapa", Modifier.weight(1f)); Switch(coverOn, { coverOn = it }) }
+                        Row(verticalAlignment = Alignment.CenterVertically) { Text("Formato", Modifier.weight(1f)); Text("Vertical, A4", color = cs.outline) }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    PatternNames.indices.chunked(4).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                        row.forEach { p -> Box(Modifier.size(70.dp, 60.dp).clip(RoundedCornerShape(12.dp)).background(Color(cover)).clickable { pattern = p }
-                            .border(if (p == pattern) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(12.dp))) {
-                            if (p > 0) CoverArt(cover, p, Modifier.fillMaxSize()) else Text("Ninguna", Modifier.align(Alignment.Center), color = Color.White, style = MaterialTheme.typography.labelSmall)
-                        } }
-                    } }
-                } else TemplateChoices.chunked(4).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                    row.forEach { (t, l) -> val b = remember(t) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, t), 0.05f).asImageBitmap() }
-                        Image(b, l, Modifier.size(70.dp, 60.dp).clip(RoundedCornerShape(10.dp)).clickable { tpl = t }
-                            .border(if (t == tpl) 3.dp else 1.dp, if (t == tpl) Brand else MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop) }
-                } }
-                OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth().padding(top = 6.dp), placeholder = { Text("Título") }, singleLine = true, shape = RoundedCornerShape(50))
-                Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onDismiss, shape = RoundedCornerShape(50)) { Text("Cancelar") }
-                    Button({ onCreate(title.ifBlank { "Sin título" }, cover, tpl, pattern) }, shape = RoundedCornerShape(50)) { Text("Crear") }
                 }
             }
-        }
+            Spacer(Modifier.height(14.dp))
+            Surface(Modifier.fillMaxSize(), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = cs.surface.copy(alpha = 0.9f)) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+                    if (tab == 1) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Color", style = MaterialTheme.typography.labelLarge)
+                            PaperColors.forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)).border(if (c == paper) 3.dp else 1.dp, if (c == paper) cs.primary else cs.outline.copy(alpha = 0.4f), CircleShape).clickable { paper = c }) }
+                            Spacer(Modifier.width(14.dp)); Text("Espacio de línea", style = MaterialTheme.typography.labelLarge)
+                            Pill { IconButton({ if (lsp > 0) lsp-- }) { Text("—") }; Text(if (lsp == 0) "Auto" else "$lsp", Modifier.width(40.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                IconButton({ if (lsp < 8) lsp++ }) { Icon(androidx.compose.material.icons.Icons.Rounded.Add, null) } }
+                        }
+                        Row(Modifier.padding(vertical = 14.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TemplateCats.forEachIndexed { i, (n, _) -> Box(Modifier.clip(RoundedCornerShape(50)).background(if (cat == i) cs.primary.copy(alpha = 0.15f) else cs.onSurface.copy(alpha = 0.06f))
+                                .border(1.dp, if (cat == i) cs.primary else Color.Transparent, RoundedCornerShape(50)).clickable { cat = i }.padding(horizontal = 18.dp, vertical = 8.dp)) {
+                                Text(n, color = if (cat == i) cs.primary else cs.onSurface) } }
+                        }
+                        TemplateCats.drop(cat).forEach { (n, list) ->
+                            Text(n, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                list.forEach { (t, l) -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(110.dp).clickable { tpl = t }) {
+                                    Box { Image(thumb(t, 0.07f), l, Modifier.size(104.dp, 140.dp).clip(RoundedCornerShape(8.dp)).border(if (t == tpl) 3.dp else 1.dp, if (t == tpl) cs.primary else cs.outline.copy(alpha = 0.35f), RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                                        if (t == tpl) Box(Modifier.align(Alignment.BottomCenter).padding(8.dp).size(22.dp).clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
+                                            Icon(androidx.compose.material.icons.Icons.Rounded.Check, null, Modifier.size(14.dp), tint = cs.onPrimary) } }
+                                    Text(l, Modifier.padding(top = 6.dp), color = if (t == tpl) cs.primary else cs.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1) } }
+                            }
+                        }
+                    } else {
+                        Text("Color de tapa", style = MaterialTheme.typography.titleMedium)
+                        Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CoverColors.forEach { c -> Box(Modifier.size(32.dp).clip(CircleShape).background(Color(c)).clickable { cover = c; coverOn = true }
+                                .then(if (c == cover) Modifier.border(3.dp, cs.onSurface, CircleShape) else Modifier)) }
+                        }
+                        Text("Diseño", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            PatternNames.indices.forEach { p -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.size(96.dp, 128.dp).clip(RoundedCornerShape(10.dp)).background(Color(cover)).clickable { pattern = p; coverOn = p > 0 }
+                                    .border(if (p == pattern && coverOn) 3.dp else 0.dp, cs.primary, RoundedCornerShape(10.dp))) { if (p > 0) CoverArt(cover, p, Modifier.fillMaxSize()) }
+                                Text(PatternNames[p], style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp)) } }
+                        }
+                    }
+                }
+            }
+        } }
     }
 }

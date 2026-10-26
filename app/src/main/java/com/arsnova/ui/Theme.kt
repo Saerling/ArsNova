@@ -34,5 +34,5 @@ fun ArsTheme(theme: Int = 0, content: @Composable () -> Unit) = MaterialTheme(
         headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 34.sp, letterSpacing = (-0.5).sp),
         titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
     ),
-    content = content,
+    content = { androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onBackground, content = content) },
 )

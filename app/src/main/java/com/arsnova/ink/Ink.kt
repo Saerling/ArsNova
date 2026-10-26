@@ -125,30 +125,47 @@ object Ink {
         for (i in 1 until a.size - 1) { val cur = a[i]; a[i] = (prev + 2 * cur + a[i + 1]) * 0.25f; prev = cur }
     }
 
-    fun drawPaper(c: Canvas, t: Template, bgName: String? = null) {
-        c.drawRect(0f, 0f, PAGE_W, PAGE_H, white)
+    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1.5f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
+    private val red = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f; color = 0x66E0533D }
+    fun drawPaper(c: Canvas, p: Page) = drawPaper(c, p.template, p.bg, p.paper, p.spacing)
+    fun drawPaper(c: Canvas, t: Template, bgName: String? = null, paper: Int = -1, spacing: Float = 0f) {
+        white.color = paper; c.drawRect(0f, 0f, PAGE_W, PAGE_H, white)
+        val darkP = Color.red(paper) * 0.3f + Color.green(paper) * 0.59f + Color.blue(paper) * 0.11f < 110
+        rule.color = if (darkP) 0x40FFFFFF else 0xFFDCD6CB.toInt(); dash.color = rule.color
         bgName?.let { bg(it) }?.let { b ->
             val s = minOf(PAGE_W / b.width, PAGE_H / b.height); val w = b.width * s; val h = b.height * s
             dst.set((PAGE_W - w) / 2, (PAGE_H - h) / 2, (PAGE_W + w) / 2, (PAGE_H + h) / 2)
             c.drawBitmap(b, null, dst, bmpPaint)
         }
+        fun sp(d: Float) = if (spacing > 0) spacing else d
+        fun lines(st: Float, x0: Float = 70f, y0: Float = 160f, x1: Float = PAGE_W - 70f, y1: Float = PAGE_H - 60f) { var y = y0; while (y < y1) { c.drawLine(x0, y, x1, y, rule); y += st } }
         when (t) {
             Template.BLANK -> {}
-            Template.LINED, Template.LINED_N, Template.LINED_W -> {
-                val st = when (t) { Template.LINED_N -> 42f; Template.LINED_W -> 74f; else -> 56f }
-                var y = 160f; while (y < PAGE_H - 60) { c.drawLine(70f, y, PAGE_W - 70, y, rule); y += st } }
+            Template.LINED, Template.LINED_N, Template.LINED_W -> lines(sp(when (t) { Template.LINED_N -> 42f; Template.LINED_W -> 74f; else -> 56f }))
             Template.GRID, Template.GRID_S, Template.GRID_L -> {
-                val st = when (t) { Template.GRID_S -> 36f; Template.GRID_L -> 78f; else -> 52f }
+                val st = sp(when (t) { Template.GRID_S -> 36f; Template.GRID_L -> 78f; else -> 52f })
                 var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, rule); x += st }
                 var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, rule); y += st }
             }
-            Template.DOTS -> {
-                var y = 52f; while (y < PAGE_H) { var x = 52f; while (x < PAGE_W) { c.drawCircle(x, y, 2.4f, rule); x += 52f }; y += 52f }
-            }
+            Template.DOTS -> { val st = sp(52f); var y = st; while (y < PAGE_H) { var x = st; while (x < PAGE_W) { c.drawCircle(x, y, 2.4f, rule); x += st }; y += st } }
+            Template.MARGIN -> { lines(sp(56f), 0f, 160f, PAGE_W); c.drawLine(170f, 0f, 170f, PAGE_H, red) }
+            Template.CORNELL -> { c.drawLine(70f, 150f, PAGE_W - 70f, 150f, rule); lines(sp(56f), 430f, 210f, PAGE_W - 70f, PAGE_H - 420f)
+                c.drawLine(400f, 150f, 400f, PAGE_H - 400f, rule); c.drawLine(70f, PAGE_H - 400f, PAGE_W - 70f, PAGE_H - 400f, rule) }
+            Template.TODO -> { val st = sp(70f); var y = 180f; while (y < PAGE_H - 80) { c.drawRoundRect(80f, y - 40f, 112f, y - 8f, 6f, 6f, rule.apply { style = Paint.Style.STROKE }); rule.style = Paint.Style.FILL
+                c.drawLine(140f, y, PAGE_W - 70f, y, rule); y += st } }
+            Template.WEEKLY -> { val names = listOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo", "Notas")
+                val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 28f; color = rule.color or 0xFF000000.toInt(); alpha = 160 }
+                val bw = (PAGE_W - 140f) / 2; val bh = (PAGE_H - 200f) / 4
+                for (i in 0 until 8) { val x = 70f + (i % 2) * bw; val y = 120f + (i / 2) * bh
+                    rule.style = Paint.Style.STROKE; c.drawRoundRect(x + 8, y + 8, x + bw - 8, y + bh - 8, 18f, 18f, rule); rule.style = Paint.Style.FILL
+                    c.drawText(names[i], x + 30f, y + 52f, tp) } }
+            Template.MUSIC -> { var y = 180f; while (y < PAGE_H - 120) { for (k in 0 until 5) c.drawLine(70f, y + k * 16f, PAGE_W - 70f, y + k * 16f, rule); y += 150f } }
+            Template.HANDWRITING -> { val st = sp(36f); var y = 180f; while (y < PAGE_H - 120) { c.drawLine(70f, y, PAGE_W - 70f, y, rule); c.drawLine(70f, y + st, PAGE_W - 70f, y + st, dash)
+                c.drawLine(70f, y + 2 * st, PAGE_W - 70f, y + 2 * st, rule); y += 3 * st + 40f } }
         }
     }
 
-    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p.template, p.bg); p.items.forEach { drawItem(c, it) }; p.strokes.forEach { drawStroke(c, it) } }
+    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p); p.items.forEach { drawItem(c, it) }; p.strokes.forEach { drawStroke(c, it) } }
 
     private val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG)
     fun drawItem(c: Canvas, it: com.arsnova.data.Item) {
