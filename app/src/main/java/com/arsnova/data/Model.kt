@@ -13,7 +13,7 @@ import kotlinx.serialization.encoding.Encoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO, TEXT }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO, TEXT, TAPE, LASER }
 
 @Serializable enum class Template { BLANK, LINED, GRID, DOTS, LINED_N, LINED_W, GRID_S, GRID_L, MARGIN, CORNELL, TODO, WEEKLY, MUSIC, HANDWRITING }
 
@@ -41,6 +41,7 @@ class Stroke(
     @Serializable(with = PtsSerializer::class) var pts: FloatArray,
     val t: Long = 0,
     val style: Int = 0,
+    var hid: Boolean = false,
 ) {
     @Transient var path: Path? = null
     @Transient private var b: RectF? = null

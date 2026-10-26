@@ -35,6 +35,12 @@ class InkView(context: Context) : View(context) {
     var penStyle = 0
     var stabilize = 0f
     var shapesOn = true
+    var eraserPixel = false
+    var tapeWidth = 40f
+    var tapePattern = 0
+    private val laser = ArrayList<FloatArray>()
+    private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val pieces = ArrayList<Stroke>()
     var replayTime = -1L
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var tapMode = false
@@ -64,6 +70,7 @@ class InkView(context: Context) : View(context) {
         class AddItem(val it: Item) : Op()
         class EditText(val it: Item, val old: String, val new: String) : Op()
         class Resize(val it: Item, val ow: Float, val oh: Float, val nw: Float, val nh: Float) : Op()
+        class Replace(val removed: List<Pair<Int, Stroke>>, val added: List<Stroke>) : Op()
         class Recolor(val s: List<Stroke>, val old: IntArray, val new: IntArray) : Op()
     }
     private val undoStack = ArrayDeque<Op>(); private val redoStack = ArrayDeque<Op>()
@@ -87,7 +94,7 @@ class InkView(context: Context) : View(context) {
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
 
-    private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV, TAP }
+    private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV, TAP, LASER }
     private var mode = Mode.NONE
     private var pid = -1; private var isStylus = false
 
@@ -184,6 +191,7 @@ class InkView(context: Context) : View(context) {
             is Op.Remove -> { op.items.forEach { p.strokes.remove(it.second) }; op.its.forEach { p.items.remove(it.second) } }
             is Op.Move -> { op.s.forEach { it.offset(op.dx, op.dy) }; op.its.forEach { it.offset(op.dx, op.dy) } }
             is Op.AddItem -> p.items.add(op.it)
+            is Op.Replace -> { op.removed.forEach { p.strokes.remove(it.second) }; p.strokes.addAll(op.added) }
             is Op.EditText -> op.it.text = op.new
             is Op.Resize -> { op.it.w = op.nw; op.it.h = op.nh }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.new[i] }
@@ -197,6 +205,7 @@ class InkView(context: Context) : View(context) {
                 op.its.asReversed().forEach { (i, s) -> p.items.add(i.coerceAtMost(p.items.size), s) } }
             is Op.Move -> { op.s.forEach { it.offset(-op.dx, -op.dy) }; op.its.forEach { it.offset(-op.dx, -op.dy) } }
             is Op.AddItem -> p.items.remove(op.it)
+            is Op.Replace -> { p.strokes.removeAll(op.added.toSet()); op.removed.asReversed().forEach { (i, s) -> p.strokes.add(i.coerceAtMost(p.strokes.size), s) } }
             is Op.EditText -> op.it.text = op.old
             is Op.Resize -> { op.it.w = op.ow; op.it.h = op.oh }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.old[i] }
@@ -289,9 +298,17 @@ class InkView(context: Context) : View(context) {
             c.save(); c.translate(selDx, selDy); selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
             dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
         }
-        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else penWidth, curStyle, if (curHl) hlColor(color) else color)
+        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
+        if (laser.isNotEmpty()) {
+            val now = System.currentTimeMillis().toFloat() % 1e7f
+            laser.removeAll { now - it[2] > 650f || now < it[2] }
+            for (k in 1 until laser.size) { val a0 = laser[k - 1]; val a1 = laser[k]; val f = 1f - (now - a1[2]) / 650f
+                laserPaint.color = (color and 0x00FFFFFF) or ((90 * f).toInt() shl 24); laserPaint.strokeWidth = dp(10f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint)
+                laserPaint.color = (0x00FFFFFF) or ((230 * f).toInt() shl 24); laserPaint.strokeWidth = dp(3f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint) }
+            postInvalidateOnAnimation()
+        }
         if (mode == Mode.ERASE && ex >= 0) c.drawCircle(ex, ey, eraserRadius, cursor)
         if (mode == Mode.NONE && hoverX >= 0) when (tool) {
             Tool.ERASER -> c.drawCircle(hoverX, hoverY, eraserRadius, cursor)
@@ -350,7 +367,11 @@ class InkView(context: Context) : View(context) {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
                 add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap(); onInking(true)
             }
-            Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
+            Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
+            Tool.TAPE -> { val hitT = hitStroke(x, y)?.takeIf { it.style == 11 }
+                if (hitT != null) { hitT.hid = !hitT.hid; pcache[page!!.id]?.valid = false; mode = Mode.NONE; onChange() }
+                else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
+            Tool.LASER -> { mode = Mode.LASER; laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f)) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
             Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
                 mode = Mode.MOVE_SEL; lastX = x; lastY = y
@@ -382,6 +403,7 @@ class InkView(context: Context) : View(context) {
         val q = toPage(sx, sy); val x = q[0]; val y = q[1]
         when (mode) {
             Mode.DRAW -> {
+                if (curStyle == 11) { curN = 3; add(x, y, 0.5f); return }
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) return
@@ -389,6 +411,7 @@ class InkView(context: Context) : View(context) {
                 add(cur[curN - 3] + (x - cur[curN - 3]) * k, cur[curN - 2] + (y - cur[curN - 2]) * k, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
+            Mode.LASER -> laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f))
             Mode.LASSO -> lasso.lineTo(x, y)
             Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
             Mode.MOVE_SEL -> { selDx += x - lastX; selDy += y - lastY; lastX = x; lastY = y }
@@ -416,7 +439,18 @@ class InkView(context: Context) : View(context) {
         for (idx in p.strokes.indices.reversed()) {
             val s = p.strokes[idx]; val b = s.bounds
             if (x < b.left - r || x > b.right + r || y < b.top - r || y > b.bottom + r) continue
-            val lim = (r + s.width / 2).let { it * it }; val a = s.pts; var j = 0
+            val lim = (r + s.width / 2).let { it * it }; val a = s.pts
+            if (eraserPixel && s.style != 11) {
+                // Borrador de píxel: parte el trazo en los tramos que quedan fuera del círculo.
+                val keep = BooleanArray(a.size / 3) { k -> val dx = a[3 * k] - x; val dy = a[3 * k + 1] - y; dx * dx + dy * dy > (r * r) }
+                if (keep.all { it }) continue
+                p.strokes.removeAt(idx); if (!pieces.remove(s)) erased += idx to s
+                var k = 0
+                while (k < keep.size) { if (!keep[k]) { k++; continue }; val st = k; while (k < keep.size && keep[k]) k++
+                    if (k - st >= 2) { val np = Stroke(System.nanoTime() + k, s.color, s.width, s.hl, a.copyOfRange(st * 3, k * 3), s.t, s.style); p.strokes.add(np); pieces += np } }
+                hit = true; continue
+            }
+            var j = 0
             while (j < a.size) {
                 val dx = a[j] - x; val dy = a[j + 1] - y
                 if (dx * dx + dy * dy <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; break }
@@ -432,13 +466,14 @@ class InkView(context: Context) : View(context) {
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
-                val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN), System.currentTimeMillis(), curStyle)
+                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
                 if (p === pages.lastOrNull()) onNeedPage()
                 curN = 0; onChange()
             }
-            Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() } }
+            Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty() || pieces.isNotEmpty()) { push(if (eraserPixel) Op.Replace(ArrayList(erased), ArrayList(pieces)) else Op.Remove(ArrayList(erased))); erased.clear(); pieces.clear(); onChange() } }
+            Mode.LASER -> postInvalidateOnAnimation()
             Mode.LASSO -> {
                 lasso.close()
                 val rg = Region().apply { setPath(lasso, Region(-20000, -20000, 40000, 40000)) }

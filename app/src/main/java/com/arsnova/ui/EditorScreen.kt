@@ -98,7 +98,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     val tool = if (textTool) Tool.TEXT else slot.tool
     val color = slot.color
     fun updSlot(s: Slot) { slots = slots.toMutableList().also { it[active] = s }; Slots.save(prefs, slots) }
-    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings && slots[i].tool != Tool.LASSO else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
+    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings && slots[i].tool != Tool.LASSO && slots[i].tool != Tool.LASER else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
     fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; updSlot(slots[k].copy(color = c)) }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
@@ -118,6 +118,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             0 -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(if (view.lastPenX >= 0) view.lastPenX else view.width / 2f, if (view.lastPenY >= 0) view.lastPenY else view.height / 2f) else null
             1 -> { val er = slots.indexOfFirst { it.tool == Tool.ERASER }; if (active == er) active = prevSlot else { prevSlot = active; active = er } }
             2 -> view.undo()
+            3 -> { val la = slots.indexOfFirst { it.tool == Tool.LASSO }; if (active == la) active = prevSlot else { prevSlot = active; active = la } }
         }
     }
     fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
@@ -160,7 +161,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.desk = deskColor
         view.penWidth = if (slot.tool == Tool.PEN) slot.width else view.penWidth
         view.hlWidth = if (slot.tool == Tool.HIGHLIGHTER) slot.width else view.hlWidth
-        if (slot.tool == Tool.ERASER) view.eraserRadius = slot.width
+        if (slot.tool == Tool.ERASER) { view.eraserRadius = slot.width; view.eraserPixel = slot.style == 1 }
+        if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
@@ -259,8 +261,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
             wheelAt?.let { at ->
                 val dialSlots = Slots.penOrder.map { slots[0].copy(style = it) } + slots.drop(1)
-                val dialActive = if (active == 0) Slots.penOrder.indexOf(slots[0].style).coerceAtLeast(0) else 5 + active
-                PencilArc(at, dialSlots, dialActive, swatches, { j -> textTool = false; if (j < 6) { active = 0; updSlot(slots[0].copy(style = Slots.penOrder[j])) } else { active = j - 5 }
+                val dialActive = if (active == 0) Slots.penOrder.indexOf(slots[0].style).coerceAtLeast(0) else Slots.penOrder.size - 1 + active
+                PencilArc(at, dialSlots, dialActive, swatches, { j -> textTool = false; if (j < Slots.penOrder.size) { active = 0; updSlot(slots[0].copy(style = Slots.penOrder[j])) } else { active = j - Slots.penOrder.size + 1 }
                     prefs.edit().putInt("slot", active).apply(); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },

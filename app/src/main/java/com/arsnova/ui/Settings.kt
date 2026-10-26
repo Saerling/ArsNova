@@ -49,7 +49,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
             item {
                 Header("Lápiz"); Group {
                 Toggle("Solo lápiz", "Rechazo de palma: el dedo solo mueve y hace zoom", stylus) { stylus = it; p.edit().putBoolean("stylusOnly", it).apply() }
-                Choice("Doble toque del lápiz", listOf("Rueda", "Borrador", "Deshacer", "Nada"), tapAction) { tapAction = it; p.edit().putInt("tapAction", it).apply() }
+                Choice("Doble toque del lápiz", listOf("Rueda", "Borrador", "Deshacer", "Lazo", "Nada"), tapAction) { tapAction = it; p.edit().putInt("tapAction", it).apply() }
                 Text("Compatible con Huawei M-Pencil (2.ª/3.ª gen/Pro), S Pen y lápices USI. Si tu lápiz usa otro gesto, configúralo desde ⋯ en el editor.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(horizontal = 20.dp)) } }
             item {

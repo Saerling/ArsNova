@@ -39,6 +39,7 @@ object Ink {
         val p = p0.coerceIn(0f, 1f); val h = width * 0.5f
         return when (style) {
             1 -> h * (0.16f + 0.84f * abs(sin(atan2(dy, dx) - 0.785f))) * (0.55f + 0.45f * p)
+            7 -> h * (0.07f + 0.93f * abs(sin(atan2(dy, dx) - 0.52f)))
             2 -> h * (0.45f + 0.55f * p)
             3 -> h * (0.06f + 0.94f * p.pow(1.5f))
             4 -> h
@@ -51,25 +52,59 @@ object Ink {
         val px = ByteArray(n * n) { (150 + r.nextInt(106)).toByte() }; b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(px))
         BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
     }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private var hidOf = false
+    private val tapeP = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** Cinta para ocultar (estudio): opaca cuando oculta, translúcida al tocarla. Patrón: 0 liso, 1 puntos, 2 cuadrícula, 3 líneas. */
+    private fun drawTape(c: Canvas, pts: FloatArray, n: Int, width: Float, color: Int, revealed: Boolean) {
+        val x0 = pts[0]; val y0 = pts[1]; val x1 = pts[n - 3]; val y1 = pts[n - 2]; val len = hypot(x1 - x0, y1 - y0).coerceAtLeast(width)
+        c.save(); c.translate(x0, y0); c.rotate(Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat())
+        tapeP.color = if (revealed) (color and 0xFFFFFF) or 0x30000000 else color or 0xFF000000.toInt(); tapeP.style = Paint.Style.FILL
+        c.drawRoundRect(0f, -width / 2, len, width / 2, 4f, 4f, tapePattern(c, len, width, revealed))
+        c.restore()
+    }
+    var tapePatternOf = 0
+    private fun tapePattern(c: Canvas, len: Float, w: Float, revealed: Boolean): Paint {
+        if (!revealed && tapePatternOf > 0) {
+            val p2 = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x55FFFFFF; strokeWidth = 2f }
+            c.save(); c.clipRect(0f, -w / 2, len, w / 2); c.drawRoundRect(0f, -w / 2, len, w / 2, 4f, 4f, tapeP)
+            when (tapePatternOf) { 1 -> { var x = 8f; while (x < len) { var y = -w / 2 + 8f; while (y < w / 2) { c.drawCircle(x, y, 2.5f, p2); y += 14f }; x += 14f } }
+                2 -> { var x = 0f; while (x < len) { c.drawLine(x, -w / 2, x, w / 2, p2); x += 14f }; var y = -w / 2; while (y < w / 2) { c.drawLine(0f, y, len, y, p2); y += 14f } }
+                else -> { var x = -w; while (x < len) { c.drawLine(x, w / 2, x + w, -w / 2, p2); x += 12f } } }
+            c.restore(); return Paint().apply { color = 0 }
+        }
+        return tapeP
+    }
     private val flat = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     fun styleOf(s: Stroke) = if (s.hl) 6 else s.style
+    /** El patrón de la cinta se guarda en los bits altos del id (sin cambiar el formato de archivo). */
+    private fun tapeStyleOf(s: Stroke) = ((s.id ushr 60) and 3).toInt()
 
     fun drawStroke(c: Canvas, s: Stroke, faded: Boolean = false) {
         val st = styleOf(s)
         val path = s.path ?: buildPath(s.pts, s.pts.size, s.width, st).also { s.path = it }
+        hidOf = s.hid; tapePatternOf = if (st == 11) tapeStyleOf(s) else 0
         val col = if (faded) (s.color and 0x00FFFFFF) or (((s.color ushr 24) * 0.2f).toInt() shl 24) else s.color
         draw(c, path, s.pts, s.pts.size, s.width, st, col)
     }
 
-    fun drawLive(c: Canvas, pts: FloatArray, n: Int, width: Float, style: Int, color: Int) =
-        draw(c, buildPath(pts, n, width, style), pts, n, width, style, color)
+    fun drawLive(c: Canvas, pts: FloatArray, n: Int, width: Float, style: Int, color: Int, tapePattern: Int = 0) =
+        hidOf.let { hidOf = false; tapePatternOf = tapePattern }.let { draw(c, buildPath(pts, n, width, style), pts, n, width, style, color) }
 
     private fun draw(c: Canvas, path: Path, pts: FloatArray, n: Int, width: Float, style: Int, color: Int) {
         if (n < 3) return
         when (style) {
             6 -> { hlPaint.color = color; hlPaint.strokeWidth = width; c.drawPath(path, hlPaint); return }
             5 -> { flat.color = color; flat.strokeWidth = width; c.drawPath(path, flat); return }
+            8 -> { glow.color = color; glow.strokeWidth = width * 1.6f; glow.maskFilter = BlurMaskFilter(width * 0.9f, BlurMaskFilter.Blur.NORMAL); c.drawPath(path, glow)
+                glow.maskFilter = null; glow.strokeWidth = width * 0.7f; c.drawPath(path, glow); glow.color = 0xEEFFFFFF.toInt(); glow.strokeWidth = width * 0.28f; c.drawPath(path, glow); return }
+            9 -> { val a = (color ushr 24) / 255f; glow.color = (color and 0xFFFFFF) or ((a * 90).toInt() shl 24); glow.strokeWidth = width * 1.3f
+                glow.maskFilter = BlurMaskFilter(width * 0.35f, BlurMaskFilter.Blur.NORMAL); c.drawPath(path, glow); glow.strokeWidth = width * 0.8f; c.drawPath(path, glow); glow.maskFilter = null; return }
+            10 -> { fill.color = color; fill.shader = null; val rnd = java.util.Random(pts[0].toLong() * 31 + n); var dist = 0f
+                for (k in 1 until n / 3) { val x0 = pts[3 * k - 3]; val y0 = pts[3 * k - 2]; val x1 = pts[3 * k]; val y1 = pts[3 * k + 1]; dist += hypot(x1 - x0, y1 - y0)
+                    while (dist > width * 0.8f) { dist -= width * 0.8f; c.drawCircle(x1 + (rnd.nextFloat() - .5f) * width * 0.5f, y1 + (rnd.nextFloat() - .5f) * width * 0.5f, width * (0.25f + 0.25f * pts[3 * k + 2]), fill) } }; return }
+            11 -> { drawTape(c, pts, n, width, color, hidOf); return }
         }
         fill.color = color; fill.shader = if (style == 2) grain else null
         c.drawPath(path, fill)
@@ -80,7 +115,7 @@ object Ink {
     fun buildPath(pts: FloatArray, n: Int, width: Float, style: Int): Path {
         val path = Path(); val cnt = n / 3
         if (cnt == 0) return path
-        if (style == 5 || style == 6) {
+        if (style == 5 || style == 6 || style in 8..11) {
             var px = pts[0]; var py = pts[1]; path.moveTo(px, py)
             if (cnt == 1) path.lineTo(px + 0.1f, py)
             for (i in 1 until cnt) {
@@ -89,7 +124,7 @@ object Ink {
             }
             path.lineTo(px, py); return path
         }
-        if (style != 1) return Freehand.path(pts, n, when (style) {
+        if (style != 1 && style != 7) return Freehand.path(pts, n, when (style) {
             2 -> Freehand.Opt(width, 0.35f, 0.5f, 0.45f)
             3 -> Freehand.Opt(width * 1.2f, 0.82f, 0.62f, 0.5f, taperStart = width * 3f, taperEnd = width * 5f)
             4 -> Freehand.Opt(width, 0f, 0.5f, 0.45f)

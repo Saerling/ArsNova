@@ -41,20 +41,20 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** Estilos de tinta: 0 bolígrafo, 1 pluma, 2 lápiz, 3 pincel, 4 monolínea, 5 rotulador, 6 resaltador. */
-val StyleNames = listOf("Bolígrafo", "Pluma de caligrafía", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador")
+val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta")
 
 @Serializable
 data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f) {
-    val name get() = when (tool) { Tool.ERASER -> "Borrador"; Tool.LASSO -> "Lazo"; Tool.TEXT -> "Texto"; else -> StyleNames[style] }
+    val name get() = when (tool) { Tool.ERASER -> "Borrador"; Tool.LASSO -> "Lazo"; Tool.TEXT -> "Texto"; Tool.TAPE -> "Cinta para ocultar"; Tool.LASER -> "Puntero láser"; else -> StyleNames[style] }
 }
 
 object Slots {
     private val json = Json { ignoreUnknownKeys = true }
     val defaults = listOf(Slot(Tool.PEN, 0, 0xFF1D1B18.toInt(), 5f), Slot(Tool.HIGHLIGHTER, 6, 0xFFF2B705.toInt(), 28f, 0.5f),
-        Slot(Tool.ERASER, 0, 0, 16f), Slot(Tool.LASSO, 0, 0, 0f))
+        Slot(Tool.ERASER, 0, 0, 16f), Slot(Tool.LASSO, 0, 0, 0f), Slot(Tool.TAPE, 0, 0xFF7FB3D5.toInt(), 44f), Slot(Tool.LASER, 0, 0xFFFF3B30.toInt(), 8f))
     /** Orden de estilos de lápiz (uno de cada uno). */
-    val penOrder = listOf(1, 0, 4, 2, 3, 5)
-    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots", null)!!) }.getOrNull()?.takeIf { it.size == 4 } ?: defaults
+    val penOrder = listOf(1, 7, 0, 4, 2, 3, 5, 8, 9, 10)
+    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots", null)!!) }.getOrNull()?.let { if (it.size == 4) it + defaults.drop(4) else it }?.takeIf { it.size == 6 } ?: defaults
     fun save(p: SharedPreferences, s: List<Slot>) = p.edit().putString("slots", json.encodeToString(s)).apply()
     fun loadSwatches(p: SharedPreferences): List<Int> = p.getString("swatches", null)?.split(",")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 5 }
         ?: listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }
@@ -71,6 +71,12 @@ val BigPalette: List<Int> = buildList {
 /** Iconos de lápices diseñados como vectores (viewBox 40×80, punta arriba). */
 private object PenArt {
     private val raw = mapOf(
+        "calligraphy" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "dark", "M15 26 L16 10 L24 7 L25 26 Z" to "metal", "M16 10 L24 7 L24 9.2 L16 12.2 Z" to "ink"),
+        "neon" to listOf("M11 36 L14 21 L26 21 L29 36 Z" to "dark", "M15.5 21 Q20 1 24.5 21 Z" to "ink", "M18.6 20 Q20 8 21.4 20 Z" to "white"),
+        "watercolor" to listOf("M13 25 L27 25 L28.5 36 L11.5 36 Z" to "wood", "M14.5 25.5 C14 16 18 9 20 3.5 C22 9 26 16 25.5 25.5 Z" to "inka"),
+        "dots" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18.6 6 A1.4 1.4 0 1 0 21.4 6 A1.4 1.4 0 1 0 18.6 6 Z" to "ink", "M15.4 9.6 A1 1 0 1 0 17.4 9.6 A1 1 0 1 0 15.4 9.6 Z" to "ink", "M22.6 9.6 A1 1 0 1 0 24.6 9.6 A1 1 0 1 0 22.6 9.6 Z" to "ink"),
+        "tape" to listOf("M11 36 L11 18 Q11 12 20 12 Q29 12 29 18 L29 36 Z" to "ink", "M14 20 L26 20 L26 23 L14 23 Z" to "white"),
+        "laser" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "dark", "M17.5 10 A2.5 2.5 0 1 0 22.5 10 A2.5 2.5 0 1 0 17.5 10 Z" to "ink"),
         "monoline" to listOf("M11 36 C11 30 17 14 18.6 9 L21.4 9 C23 14 29 30 29 36 Z" to "white", "M18.6 9 L21.4 9 L20.9 4.2 Q20 3.2 19.1 4.2 Z" to "ink"),
         "ballpoint" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "metal", "M19.3 5.2 L20.7 5.2 L20.3 3.6 L19.7 3.6 Z" to "ink"),
         "fountain" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "dark", "M15 26 C15 18 18.6 9.5 20 3.8 C21.4 9.5 25 18 25 26 Z" to "metal", "M19.6 6 L20.4 6 L20.4 18 L19.6 18 Z" to "dark", "M18.8 19.6 A1.2 1.2 0 1 0 21.2 19.6 A1.2 1.2 0 1 0 18.8 19.6 Z" to "dark", "M19.4 3.4 L20.6 3.4 L20.3 5.2 L19.7 5.2 Z" to "ink"),
@@ -88,7 +94,8 @@ private object PenArt {
     val mats = mapOf("white" to g(0xFFE2DED6, 0xFFFFFFFF, 0xFFD9D4CB), "metal" to g(0xFF8E8E93, 0xFFF2F2F7, 0xFF7C7C82, x0 = 13f, x1 = 27f),
         "wood" to g(0xFFD2A878, 0xFFF2D9B8, 0xFFC69A6B), "pink" to g(0xFFE8938F, 0xFFF9C2BE, 0xFFDE837F))
     fun key(s: Slot) = when (s.tool) { Tool.ERASER -> "eraser"; Tool.LASSO -> "lasso"; Tool.HIGHLIGHTER -> "highlighter"
-        else -> when (s.style) { 1 -> "fountain"; 2 -> "pencil"; 3 -> "brush"; 4 -> "monoline"; 5 -> "marker"; else -> "ballpoint" } }
+        Tool.TAPE -> "tape"; Tool.LASER -> "laser"
+        else -> when (s.style) { 1 -> "fountain"; 2 -> "pencil"; 3 -> "brush"; 4 -> "monoline"; 5 -> "marker"; 7 -> "calligraphy"; 8 -> "neon"; 9 -> "watercolor"; 10 -> "dots"; else -> "ballpoint" } }
 }
 
 private fun DrawScope.toolArt(s: Slot, dark: Boolean) {
@@ -147,9 +154,9 @@ fun AppleToolbar(
         val s = slots[i]; val on = i == active
         val bg by androidx.compose.animation.animateColorAsState(if (on) cs.onSurface.copy(alpha = 0.12f) else Color.Transparent, label = "tb")
         Box(Modifier.padding(2.dp).size(44.dp).clip(RoundedCornerShape(14.dp)).background(bg).clickable { onSelect(i) }, contentAlignment = Alignment.Center) {
-            Icon(when (s.tool) { Tool.PEN -> Icons.Rounded.Create; Tool.HIGHLIGHTER -> Icons.Rounded.BorderColor; Tool.ERASER -> EraserIcon; Tool.LASSO -> LassoIcon; else -> Icons.Rounded.TextFields },
+            Icon(when (s.tool) { Tool.PEN -> Icons.Rounded.Create; Tool.HIGHLIGHTER -> Icons.Rounded.BorderColor; Tool.ERASER -> EraserIcon; Tool.LASSO -> LassoIcon; Tool.TAPE -> Icons.Rounded.CropDin; Tool.LASER -> Icons.Rounded.Adjust; else -> Icons.Rounded.TextFields },
                 s.name, tint = if (on) cs.onSurface else cs.onSurface.copy(alpha = 0.7f))
-            if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER) Box(Modifier.align(Alignment.BottomEnd).padding(7.dp).size(9.dp).clip(CircleShape).background(Color(s.color).copy(alpha = 1f)).border(1.dp, cs.surface, CircleShape))
+            if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER || s.tool == Tool.TAPE || s.tool == Tool.LASER) Box(Modifier.align(Alignment.BottomEnd).padding(7.dp).size(9.dp).clip(CircleShape).background(Color(s.color).copy(alpha = 1f)).border(1.dp, cs.surface, CircleShape))
         }
     }
     @Composable fun Dot(c: Int, k: Int) {
@@ -190,14 +197,21 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
     Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 16.dp, color = cs.surface.copy(alpha = 0.96f), modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) {
         Column(Modifier.padding(18.dp, 14.dp)) {
             if (s.tool == Tool.PEN) {
-                Row(Modifier.fillMaxWidth().height(70.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
                     Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
                 }
                 HorizontalDivider(color = cs.outline.copy(alpha = 0.25f))
                 Text(s.name, style = MaterialTheme.typography.labelLarge, color = cs.onSurface, modifier = Modifier.padding(top = 10.dp))
             } else Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-            if (s.tool != Tool.LASSO) {
-                val range = when (s.tool) { Tool.HIGHLIGHTER -> 10f..70f; Tool.ERASER -> 6f..80f; else -> 1f..40f }
+            if (s.tool == Tool.ERASER || s.tool == Tool.TAPE) {
+                val opts = if (s.tool == Tool.ERASER) listOf("Objeto", "Píxel") else listOf("Liso", "Puntos", "Cuadrícula", "Rayas")
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    opts.forEachIndexed { i, l -> SegmentedButton(s.style == i, { onChange(s.copy(style = i)) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
+                }
+                if (s.tool == Tool.TAPE) Text("Dibuja la cinta sobre lo que quieras ocultar; tócala con esta herramienta para mostrar u ocultar.", style = MaterialTheme.typography.bodySmall, color = cs.outline, modifier = Modifier.padding(top = 6.dp))
+            }
+            if (s.tool != Tool.LASSO && s.tool != Tool.LASER) {
+                val range = when (s.tool) { Tool.HIGHLIGHTER -> 10f..70f; Tool.ERASER -> 6f..80f; Tool.TAPE -> 16f..120f; else -> 1f..40f }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                     IconButton({ onChange(s.copy(width = (s.width - 1).coerceIn(range))) }) { Text("—", color = cs.onSurface) }
                     Slider(s.width, { onChange(s.copy(width = it)) }, Modifier.weight(1f), valueRange = range)
@@ -205,6 +219,11 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
                     Box(Modifier.size(36.dp).clip(CircleShape).background(cs.onSurface.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
                         Text(s.width.toInt().toString(), style = MaterialTheme.typography.labelLarge, color = cs.onSurface) }
                 }
+            }
+            if (s.tool == Tool.TAPE || s.tool == Tool.LASER) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
+                listOf(0xFF7FB3D5, 0xFFF5B7B1, 0xFFA9DFBF, 0xFFF9E79F, 0xFFD7BDE2, 0xFFFF3B30, 0xFF1D1B18).map { it.toInt() }.forEach { c -> val on = c == s.color
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).clickable { onChange(s.copy(color = c)) }, contentAlignment = Alignment.Center) {
+                        if (on) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = Color.White) } }
             }
             if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Estabilización", Modifier.weight(1f), color = cs.onSurface); Text("${(s.stab * 100).toInt()}%", color = cs.outline) }
