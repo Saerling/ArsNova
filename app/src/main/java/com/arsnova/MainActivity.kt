@@ -22,10 +22,14 @@ class MainActivity : ComponentActivity() {
         val repo = Repo(applicationContext)
         com.arsnova.ink.Ink.bgDir = repo.dir
         setContent {
-            ArsTheme {
+            val prefs = remember { getSharedPreferences("ars", MODE_PRIVATE) }
+            var theme by remember { mutableIntStateOf(prefs.getInt("theme", 0)) }
+            ArsTheme(theme) {
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
+                var settings by rememberSaveable { mutableStateOf(false) }
                 val id = open
-                if (id == null) LibraryScreen(repo) { open = it }
+                if (settings) { BackHandler { settings = false }; com.arsnova.ui.SettingsScreen(theme, { theme = it; prefs.edit().putInt("theme", it).apply() }) { settings = false } }
+                else if (id == null) LibraryScreen(repo, { settings = true }) { open = it }
                 else { BackHandler { open = null }; EditorScreen(repo, id) { open = null } }
             }
         }

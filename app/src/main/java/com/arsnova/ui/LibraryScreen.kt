@@ -27,12 +27,22 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import java.text.DateFormat
 import java.util.Date
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
+fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) {
+    val ctx0 = androidx.compose.ui.platform.LocalContext.current
+    var upd by remember { mutableStateOf<com.arsnova.data.Updater.Rel?>(null) }
+    LaunchedEffect(Unit) {
+        if (ctx0.getSharedPreferences("ars", 0).getBoolean("autoUpdate", true)) {
+            val r = withContext(Dispatchers.IO) { com.arsnova.data.Updater.latest() }
+            if (r != null && r.code > com.arsnova.data.Updater.current(ctx0)) upd = r
+        }
+    }
+    upd?.let { UpdateDialog(it) { upd = null } }
     var items by remember { mutableStateOf(repo.list()) }
     var creating by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<NotebookMeta?>(null) }
@@ -60,7 +70,10 @@ fun LibraryScreen(repo: Repo, onOpen: (String) -> Unit) {
         } },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("ArsNova", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 4.dp).weight(1f))
+                IconButton(onSettings, Modifier.padding(top = 16.dp, end = 12.dp)) { Icon(androidx.compose.material.icons.Icons.Outlined.Settings, "Ajustes") }
+            }
             Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
             OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp),
                 placeholder = { Text("Buscar en títulos y escritura a mano") }, leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null) })
@@ -117,7 +130,8 @@ private fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
 private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Template) -> Unit) {
     var title by remember { mutableStateOf("") }
     var cover by remember { mutableIntStateOf(CoverColors[0]) }
-    var tpl by remember { mutableStateOf(Template.LINED) }
+    val ctxT = androidx.compose.ui.platform.LocalContext.current
+    var tpl by remember { mutableStateOf(Template.entries[ctxT.getSharedPreferences("ars", 0).getInt("tpl", 1)]) }
     AlertDialog(onDismiss, title = { Text("Nuevo cuaderno") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             OutlinedTextField(title, { title = it }, placeholder = { Text("Sin título") }, singleLine = true)

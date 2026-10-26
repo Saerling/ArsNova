@@ -40,6 +40,7 @@ class Stroke(
     val hl: Boolean = false,
     @Serializable(with = PtsSerializer::class) var pts: FloatArray,
     val t: Long = 0,
+    val style: Int = 0,
 ) {
     @Transient var path: Path? = null
     @Transient private var b: RectF? = null
@@ -64,7 +65,7 @@ class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke
 /** Elemento no-tinta: 0 = texto, 1 = imagen. */
 @Serializable
 class Item(val id: Long, val kind: Int, var x: Float, var y: Float, var w: Float, var h: Float = 0f,
-    var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt()) {
+    var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt(), var align: Int = 0, var bold: Boolean = false) {
     fun bounds() = RectF(x, y, x + w, y + h)
     fun offset(dx: Float, dy: Float) { x += dx; y += dy }
 }

@@ -41,7 +41,7 @@ import kotlin.math.sin
 /** Puente de teclas del lápiz (doble toque) desde la Activity. */
 object StylusKeys {
     var handler: ((KeyEvent) -> Boolean)? = null
-    val NATIVE = setOf(308, 309, 310, 311) // KEYCODE_STYLUS_BUTTON_PRIMARY..TAIL (API 34)
+    val NATIVE = setOf(308, 309, 310, 311, 718) // STYLUS_BUTTON_* (API 34) y 718 = doble toque Huawei M-Pencil
 }
 
 /** Rueda radial estilo Apple Pencil Pro / Samsung: herramientas fuera, colores dentro. */

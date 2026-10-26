@@ -25,6 +25,9 @@ class InkView(context: Context) : View(context) {
     var hlWidth = 28f
     var eraserRadius = 16f
     var stylusOnly = false
+    var penStyle = 0
+    var stabilize = 0f
+    var shapesOn = true
     var replayTime = -1L
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var tapMode = false
@@ -70,7 +73,7 @@ class InkView(context: Context) : View(context) {
     private var mode = Mode.NONE
     private var pid = -1; private var isStylus = false
 
-    private var cur = FloatArray(1536); private var curN = 0; private var curHl = false
+    private var cur = FloatArray(1536); private var curN = 0; private var curHl = false; private var curStyle = 0
     private var snapped = false; private var sx0 = 0f; private var sy0 = 0f; private var sigX = 0f; private var sigY = 0f
     private val erased = ArrayList<Pair<Int, Stroke>>()
     private var ex = -1f; private var ey = -1f
@@ -83,7 +86,7 @@ class InkView(context: Context) : View(context) {
     private val pt = FloatArray(2)
 
     private val snap = Runnable {
-        if (mode == Mode.DRAW && curN >= 18) {
+        if (shapesOn && mode == Mode.DRAW && curN >= 18) {
             snapped = true; sx0 = cur[0]; sy0 = cur[1]
             val sh = Shapes.recognize(cur, curN)
             if (sh != null) {
@@ -144,6 +147,7 @@ class InkView(context: Context) : View(context) {
     }
 
     fun fit() { fitted = false; cacheDirty = true; invalidate() }
+    fun refresh() { cacheDirty = true; invalidate() }
 
     private fun hlColor(c: Int) = (c and 0x00FFFFFF) or 0x66000000
 
@@ -210,7 +214,7 @@ class InkView(context: Context) : View(context) {
             c.save(); c.translate(selDx, selDy); selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
             dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
         }
-        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else penWidth, curHl, if (curHl) hlColor(color) else color)
+        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else penWidth, curStyle, if (curHl) hlColor(color) else color)
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
         if (mode == Mode.ERASE && ex >= 0) c.drawCircle(ex, ey, eraserRadius, cursor)
@@ -265,7 +269,7 @@ class InkView(context: Context) : View(context) {
         if (tapMode) { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y; return }
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
-                clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curN = 0; snapped = false; shapeLocked = false
+                clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
                 add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap()
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y) }
@@ -302,7 +306,8 @@ class InkView(context: Context) : View(context) {
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) return
-                add(x, y, pressure(pr))
+                val k = 1f - stabilize * 0.88f
+                add(cur[curN - 3] + (x - cur[curN - 3]) * k, cur[curN - 2] + (y - cur[curN - 2]) * k, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
             Mode.LASSO -> lasso.lineTo(x, y)
@@ -348,7 +353,7 @@ class InkView(context: Context) : View(context) {
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
-                val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN), System.currentTimeMillis())
+                val s = Stroke(System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else penWidth, curHl, cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 if (!cacheDirty) cache?.let { val cc = Canvas(it); cc.concat(cacheMatrix); Ink.drawStroke(cc, s) }
                 curN = 0; onChange()
