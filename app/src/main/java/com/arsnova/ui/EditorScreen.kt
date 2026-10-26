@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.FileProvider
 import com.arsnova.data.*
@@ -297,7 +298,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
             val dens = androidx.compose.ui.platform.LocalDensity.current
             val handle = Modifier.pointerInput(dock) {
-                androidx.compose.foundation.gestures.detectDragGestures(onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero }, onDragEnd = {
+                detectDragGestures(onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero }, onDragEnd = {
                     val base = when (dock) { 1 -> with(dens) { 40.dp.toPx() }; -1 -> boxW - with(dens) { 40.dp.toPx() }; else -> boxW / 2f }
                     val x = base + drag.x
                     dock = when { x < boxW * 0.25f -> 1; x > boxW * 0.75f -> -1; else -> 0 }
