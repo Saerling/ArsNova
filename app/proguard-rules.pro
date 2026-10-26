@@ -1,0 +1,3 @@
+-keepattributes *Annotation*, InnerClasses
+-keep,includedescriptorclasses class com.arsnova.**$$serializer { *; }
+-keepclassmembers class com.arsnova.** { *** Companion; kotlinx.serialization.KSerializer serializer(...); }
