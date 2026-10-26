@@ -131,10 +131,13 @@ object Ink {
         }
         when (t) {
             Template.BLANK -> {}
-            Template.LINED -> { var y = 160f; while (y < PAGE_H - 60) { c.drawLine(70f, y, PAGE_W - 70, y, rule); y += 56f } }
-            Template.GRID -> {
-                var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, rule); x += 52f }
-                var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, rule); y += 52f }
+            Template.LINED, Template.LINED_N, Template.LINED_W -> {
+                val st = when (t) { Template.LINED_N -> 42f; Template.LINED_W -> 74f; else -> 56f }
+                var y = 160f; while (y < PAGE_H - 60) { c.drawLine(70f, y, PAGE_W - 70, y, rule); y += st } }
+            Template.GRID, Template.GRID_S, Template.GRID_L -> {
+                val st = when (t) { Template.GRID_S -> 36f; Template.GRID_L -> 78f; else -> 52f }
+                var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, rule); x += st }
+                var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, rule); y += st }
             }
             Template.DOTS -> {
                 var y = 52f; while (y < PAGE_H) { var x = 52f; while (x < PAGE_W) { c.drawCircle(x, y, 2.4f, rule); x += 52f }; y += 52f }

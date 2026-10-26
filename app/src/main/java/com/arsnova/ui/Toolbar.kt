@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -116,38 +117,49 @@ fun AppleToolbar(
     slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSelect: (Int) -> Unit, onUndo: () -> Unit, onRedo: () -> Unit, onColor: (Int) -> Unit, onEditSwatch: (Int) -> Unit,
     onPicker: () -> Unit, insertMenu: @Composable (Boolean, () -> Unit) -> Unit, onMore: () -> Unit, onCollapse: () -> Unit = {},
+    dock: Int = 0, handle: Modifier = Modifier,
 ) {
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.3f
     var plus by remember { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f), shadowElevation = 14.dp,
-        modifier = Modifier.border(1.dp, Color.White.copy(alpha = if (dark) 0.12f else 0.7f), RoundedCornerShape(32.dp))) {
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onCollapse, Modifier.size(36.dp)) { Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowDown, "Minimizar", tint = MaterialTheme.colorScheme.outline) }
-            IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
-            IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
-            Spacer(Modifier.width(4.dp))
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                slots.forEachIndexed { i, s -> ToolArt(s, i == active) { onSelect(i) } }
-            }
-            Spacer(Modifier.width(10.dp))
-            val cur = slots[active].color
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                for (r in 0..1) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (cIdx in 0..2) {
-                        val k = r * 3 + cIdx
-                        if (k < 5) {
-                            val c = swatches[k]; val on = (c or 0xFF000000.toInt()) == (cur or 0xFF000000.toInt())
-                            val sc by androidx.compose.animation.core.animateFloatAsState(if (on) 1.18f else 1f, spring(dampingRatio = 0.5f), label = "sw")
-                            Box(Modifier.size(22.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(Color(c)).border(if (on) 2.dp else 0.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, CircleShape)
-                                .combinedClickable(onClick = { onColor(c) }, onLongClick = { onEditSwatch(k) }))
-                        } else Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
-                    }
+    val vertical = dock != 0
+    val shape = RoundedCornerShape(30.dp)
+    @Composable fun Items() {
+        Box(handle.size(if (vertical) 40.dp else 28.dp, if (vertical) 28.dp else 40.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(if (vertical) 22.dp else 4.dp, if (vertical) 4.dp else 22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)))
+        }
+        IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
+        IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
+        slots.forEachIndexed { i, s ->
+            if (vertical) Box(Modifier.size(56.dp, 38.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.requiredSize(38.dp, 56.dp).graphicsLayer { rotationZ = if (dock > 0) 90f else -90f }) { ToolArt(s, i == active) { onSelect(i) } }
+            } else Box(Modifier.padding(top = 6.dp)) { ToolArt(s, i == active) { onSelect(i) } }
+        }
+        Spacer(Modifier.size(8.dp))
+        val cur = slots.getOrNull(active)?.color ?: 0
+        val rows = if (vertical) 3 else 2; val cols = if (vertical) 2 else 3
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(6.dp)) {
+            for (r in 0 until rows) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (cIdx in 0 until cols) {
+                    val k = r * cols + cIdx
+                    if (k < 5) {
+                        val c = swatches[k]; val on = (c or 0xFF000000.toInt()) == (cur or 0xFF000000.toInt())
+                        val sc by androidx.compose.animation.core.animateFloatAsState(if (on) 1.18f else 1f, spring(dampingRatio = 0.5f), label = "sw")
+                        Box(Modifier.size(24.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(Color(c))
+                            .border(if (on) 2.dp else 0.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, CircleShape)
+                            .combinedClickable(onClick = { onColor(c) }, onLongClick = { onEditSwatch(k) }))
+                    } else Box(Modifier.size(24.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
                 }
             }
-            Spacer(Modifier.width(6.dp))
-            Box { IconButton({ plus = true }) { Icon(Icons.Outlined.Add, "Insertar") }; insertMenu(plus) { plus = false } }
-            IconButton(onMore) { Icon(Icons.Outlined.MoreHoriz, "Más") }
         }
+        Box { IconButton({ plus = true }) { Icon(Icons.Outlined.Add, "Insertar") }; insertMenu(plus) { plus = false } }
+        IconButton(onMore) { Icon(Icons.Outlined.MoreHoriz, "Más") }
+        IconButton(onCollapse, Modifier.size(36.dp)) { Icon(Icons.Outlined.KeyboardArrowDown, "Minimizar", tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; else -> 0f } }) }
+    }
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f), shadowElevation = 14.dp,
+        modifier = Modifier.border(1.dp, Color.White.copy(alpha = if (dark) 0.12f else 0.7f), shape)) {
+        if (vertical) Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) { Items() }
+        else Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) { Items() }
     }
 }
 

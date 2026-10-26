@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.FileProvider
 import com.arsnova.data.*
@@ -99,6 +101,12 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; updSlot(slots[k].copy(color = c)) }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
+    var palMenu by remember { mutableStateOf(false) }
+    var lines by remember { mutableStateOf(false) }
+    var autoMin by remember { mutableStateOf(prefs.getBoolean("autoMin", false)) }
+    var beautify by remember { mutableStateOf(prefs.getBoolean("beautify", true)) }
+    var dock by remember { mutableIntStateOf(prefs.getInt("dock", 0)) }
+    var boxW by remember { mutableFloatStateOf(1f) }
     var collapsed by remember { mutableStateOf(false) }
     var lastPage by remember { mutableIntStateOf(0) }
     LaunchedEffect(pageIdx) {
@@ -156,7 +164,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.penWidth = if (slot.tool == Tool.PEN) slot.width else view.penWidth
         view.hlWidth = if (slot.tool == Tool.HIGHLIGHTER) slot.width else view.hlWidth
         if (slot.tool == Tool.ERASER) view.eraserRadius = slot.width
-        view.penStyle = slot.style; view.stabilize = slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
+        view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
     DisposableEffect(Unit) {
@@ -208,7 +216,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             )
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        Box(Modifier.padding(pad).fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
             if (pages) PageGrid(nb, pageIdx, { pageIdx = it; pages = false }, { nb.pages.add(Page(System.nanoTime(), nb.pages.last().template)); pageIdx = nb.pages.size - 1; dirty++; pages = false }) { pages = false }
             editing?.let { (item, isNew) ->
@@ -252,18 +260,21 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     TextButton({ learning = false }) { Text("Cancelar", color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
-            wheelAt?.let { at ->
-                ToolWheel(at, tool, color, { t -> textTool = false; slots.indexOfFirst { it.tool == t }.takeIf { it >= 0 }?.let { active = it }; wheelAt = null },
-                    { setColor(it); wheelAt = null }, view::undo, view::redo) { wheelAt = null }
-            }
-            picker?.let { k ->
-                ColorPickerDialog(if (k < 0) color else swatches[k], { picker = null }) { c ->
-                    if (k < 0) setColor(c) else { swatches = swatches.toMutableList().also { it[k] = c }; Slots.saveSwatches(prefs, swatches) }
-                    picker = null
-                }
-            }
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp, start = 12.dp, end = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            wheelAt?.let { at -> PencilArc(at, slots, active, swatches, { pick(it); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
+            if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
+                { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
+                { palMenu = false; lines = true }, { palMenu = false; showSettings = true }) { palMenu = false }
+            if (lines) LinesSheet(nb.pages[pageIdx].template, { t -> nb.pages.forEach { it.template = t }; view.refresh(); dirty++; lines = false }) { lines = false }
+            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (dock == 0) 96.dp else 14.dp, start = 12.dp, end = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
+                AnimatedVisibility(picker != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f)) {
+                    val k = picker ?: -1
+                    ColorPopover(if (k < 0) color else swatches[k], swatches, { c ->
+                        if (k >= 0) { swatches = swatches.toMutableList().also { it[k] = c or 0xFF000000.toInt() }; Slots.saveSwatches(prefs, swatches) }
+                        else if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) { updSlot(slot.copy(color = c)); if (hasSel) view.recolorSelection(c) } else setColor(c)
+                    }, { c -> swatches = (swatches.drop(1) + c); Slots.saveSwatches(prefs, swatches) }) { picker = null }
+                }
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
@@ -280,13 +291,29 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         } }, enabled = !converting) { Icon(Icons.Outlined.TextFields, null); Spacer(Modifier.width(6.dp)); Text("A texto") }
                     }
                 }
-                val tbAlpha by androidx.compose.animation.core.animateFloatAsState(if (inking) 0.3f else 1f, androidx.compose.animation.core.tween(if (inking) 400 else 180), label = "tb")
-                val tbY by androidx.compose.animation.core.animateDpAsState(if (inking) 18.dp else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 0.8f), label = "tbY")
-                androidx.compose.animation.AnimatedContent(collapsed, Modifier.graphicsLayer { alpha = tbAlpha; translationY = tbY.toPx() },
+            }
+            val tbAlpha by androidx.compose.animation.core.animateFloatAsState(if (inking && !autoMin) 0.3f else 1f, androidx.compose.animation.core.tween(if (inking) 400 else 180), label = "tb")
+            val mini = collapsed || (autoMin && inking)
+            var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+            val dens = androidx.compose.ui.platform.LocalDensity.current
+            val handle = Modifier.pointerInput(dock) {
+                androidx.compose.foundation.gestures.detectDragGestures(onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero }, onDragEnd = {
+                    val base = when (dock) { 1 -> with(dens) { 40.dp.toPx() }; -1 -> boxW - with(dens) { 40.dp.toPx() }; else -> boxW / 2f }
+                    val x = base + drag.x
+                    dock = when { x < boxW * 0.25f -> 1; x > boxW * 0.75f -> -1; else -> 0 }
+                    prefs.edit().putInt("dock", dock).apply(); drag = androidx.compose.ui.geometry.Offset.Zero
+                }) { c, d -> c.consume(); drag += d }
+            }
+            Box(Modifier.align(when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter })
+                .navigationBarsPadding().padding(12.dp).offset { androidx.compose.ui.unit.IntOffset(drag.x.toInt(), drag.y.toInt()) }
+                .graphicsLayer { alpha = tbAlpha }) {
+                androidx.compose.animation.AnimatedContent(mini,
                     transitionSpec = { (androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.6f)) togetherWith (androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.6f)) using androidx.compose.animation.SizeTransform(clip = false) },
-                    label = "toolbar") { mini -> if (mini) {
-                    Surface(Modifier.size(64.dp).clickable { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
+                    label = "toolbar") { m -> if (m) {
+                    if (dock == 0) Surface(Modifier.size(64.dp).clickable { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 10.dp)) { ToolArt(slot, true) { collapsed = false } }
+                    } else Surface(Modifier.size(52.dp).clickable { collapsed = false }, shape = RoundedCornerShape(16.dp), shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.ChevronRight, "Mostrar herramientas", Modifier.graphicsLayer { rotationZ = if (dock < 0) 180f else 0f }) }
                     }
                 } else AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
                     insertMenu = { open, close ->
@@ -294,14 +321,15 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(Icons.Outlined.TextFields, null) })
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Outlined.Image, null) })
                             DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); pageIdx++; dirty++ }, leadingIcon = { Icon(Icons.Outlined.NoteAdd, null) })
+                            DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) })
                         }
-                    }, onMore = { menu = true }, onCollapse = { collapsed = true; showSettings = false }) }
+                    }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false }, dock = dock, handle = handle) }
             }
         }
     }
 }
 
-private fun Template.label() = when (this) { Template.BLANK -> "en blanco"; Template.LINED -> "rayado"; Template.GRID -> "cuadrícula"; Template.DOTS -> "puntos" }
+private fun Template.label() = when (this) { Template.BLANK -> "en blanco"; Template.LINED -> "rayado"; Template.GRID -> "cuadrícula"; Template.DOTS -> "puntos"; else -> "líneas y cuadrícula" }
 
 private fun exportPdf(ctx: Context, nb: Notebook) {
     val doc = PdfDocument(); val s = 595f / InkR.PAGE_W
