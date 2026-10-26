@@ -84,7 +84,7 @@ private object PenArt {
     )
     val parts: Map<String, List<Pair<Path, String>>> by lazy { raw.mapValues { (_, l) -> l.map { androidx.compose.ui.graphics.vector.PathParser().parsePathString(it.first).toPath() to it.second } } }
     val barrel by lazy { Path().apply { addRect(androidx.compose.ui.geometry.Rect(11f, 36f, 29f, 84f)) } }
-    private fun g(vararg c: Long, x0: Float = 11f, x1: Float = 29f) = Brush.horizontalGradient(c.mapIndexed { i, v -> (i.toFloat() / (c.size - 1)) to Color(v) }.toTypedArray(), x0, x1)
+    private fun g(vararg c: Long, x0: Float = 11f, x1: Float = 29f) = Brush.horizontalGradient(c.map { Color(it) }, x0, x1)
     val barrelB = g(0xFFDCD7CE, 0xFFFFFFFF, 0xFFF3F0EA, 0xFFCFC9BF)
     val mats = mapOf("white" to g(0xFFE2DED6, 0xFFFFFFFF, 0xFFD9D4CB), "metal" to g(0xFF8E8E93, 0xFFF2F2F7, 0xFF7C7C82, x0 = 13f, x1 = 27f),
         "wood" to g(0xFFD2A878, 0xFFF2D9B8, 0xFFC69A6B), "pink" to g(0xFFE8938F, 0xFFF9C2BE, 0xFFDE837F))
