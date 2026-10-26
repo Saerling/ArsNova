@@ -59,6 +59,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var hasSel by remember { mutableStateOf(false) }
     var dirty by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    val view = remember { InkView(ctx) }
     var editing by remember { mutableStateOf<Pair<Item, Boolean>?>(null) }
     val scope = rememberCoroutineScope()
     val pickImg = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -82,7 +83,6 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var learning by remember { mutableStateOf(false) }
     var learned by remember { mutableIntStateOf(prefs.getInt("tapCode", -1)) }
 
-    val view = remember { InkView(ctx) }
     val deskColor = if (androidx.compose.foundation.isSystemInDarkTheme()) 0xFF151413.toInt() else InkView.DESK
     fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
 
