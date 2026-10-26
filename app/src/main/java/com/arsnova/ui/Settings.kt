@@ -59,7 +59,24 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 Choice("Plantilla por defecto", listOf("Blanco", "Rayado", "Cuadrícula", "Puntos"), tpl) { tpl = it; p.edit().putInt("tpl", it).apply() }
             }
             item {
-                Header("Inteligencia artificial (opcional)")
+                Header("IA en el dispositivo")
+                var have by remember { mutableStateOf(com.arsnova.data.LocalAi.ready(ctx)) }
+                var dl by remember { mutableStateOf<Float?>(null) }
+                ListItem({ Text(com.arsnova.data.LocalAi.NAME) },
+                    supportingContent = { Column {
+                        Text(if (have) "Descargado · funciona sin internet" else "≈547 MB · resúmenes y preguntas de estudio sin conexión")
+                        dl?.let { LinearProgressIndicator({ it }, Modifier.fillMaxWidth().padding(top = 6.dp)) } } },
+                    trailingContent = {
+                        if (have) TextButton({ com.arsnova.data.LocalAi.delete(ctx); have = false }) { Text("Borrar") }
+                        else TextButton({ dl = 0f; scope.launch {
+                            val ok = runCatching { withContext(Dispatchers.IO) { com.arsnova.data.LocalAi.download(ctx) { dl = it } } }.isSuccess
+                            dl = null; have = com.arsnova.data.LocalAi.ready(ctx)
+                            if (!ok) android.widget.Toast.makeText(ctx, "Falló la descarga", android.widget.Toast.LENGTH_SHORT).show()
+                        } }, enabled = dl == null) { Text("Descargar") }
+                    })
+            }
+            item {
+                Header("IA en la nube (opcional)")
                 OutlinedTextField(key, { key = it; p.edit().putString("aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     label = { Text("Clave de API de Claude") }, singleLine = true, supportingText = { Text("Se guarda solo en este dispositivo") })
             }

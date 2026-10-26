@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.pdf.PdfDocument
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -93,9 +95,19 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     val tool = if (textTool) Tool.TEXT else slot.tool
     val color = slot.color
     fun updSlot(s: Slot) { slots = slots.toMutableList().also { it[active] = s }; Slots.save(prefs, slots) }
-    fun pick(i: Int) { textTool = false; if (i == active) showSettings = !showSettings else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
+    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
     fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; updSlot(slots[k].copy(color = c)) }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
+    var inking by remember { mutableStateOf(false) }
+    var collapsed by remember { mutableStateOf(false) }
+    var lastPage by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pageIdx) {
+        if (pageIdx != lastPage) {
+            val d = if (pageIdx > lastPage) 1 else -1; lastPage = pageIdx
+            view.alpha = 0f; view.translationX = d * 80f
+            view.animate().alpha(1f).translationX(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        }
+    }
     var prevSlot by remember { mutableIntStateOf(0) }
     fun onDoubleTap() {
         val now = System.currentTimeMillis(); if (now - lastTap < 450) return; lastTap = now
@@ -112,14 +124,16 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var aiOut by remember { mutableStateOf<String?>(null) }
     var askKey by remember { mutableStateOf(false) }
     fun runAi() {
-        val key = prefs.getString("aiKey", null); if (key.isNullOrBlank()) { askKey = true; return }
+        val key = prefs.getString("aiKey", null); val local = com.arsnova.data.LocalAi.ready(ctx)
+        if (!local && key.isNullOrBlank()) { askKey = true; return }
         aiOut = "…"
         scope.launch {
             val text = nb.pages.joinToString("\n\n") { p -> (if (p.ocr.isBlank()) "" else p.ocr) + p.items.joinToString("\n", "\n") { it.text } }
                 .ifBlank { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { "" } }
             val src = if (text.isBlank()) com.arsnova.ink.Recognizer.recognize(nb.pages.flatMap { it.strokes }) else text
             aiOut = if (src.isBlank()) "No hay texto reconocible en este cuaderno todavía."
-                else runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ai.ask(key, Ai.studyPrompt(src)) } }.getOrElse { "Error: ${it.message}" }
+                else runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    if (local) com.arsnova.data.LocalAi.generate(ctx, com.arsnova.data.LocalAi.studyPrompt(src)) else Ai.ask(key!!, Ai.studyPrompt(src)) } }.getOrElse { "Error: ${it.message}" }
         }
     }
     // Indexa el texto manuscrito de la página actual en segundo plano (búsqueda).
@@ -128,6 +142,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
+        view.onInking = { inking = it; if (it) showSettings = false }
         view.onTextEdit = { it, isNew -> editing = it to isNew }
         view.tapMode = audio.open
         view.replayTime = audio.replayTime()
@@ -219,7 +234,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             if (askKey) {
                 var k by remember { mutableStateOf("") }
                 AlertDialog({ askKey = false }, title = { Text("Clave de API de Claude") },
-                    text = { Column { Text("La IA es opcional. Tu clave se guarda solo en este dispositivo (console.anthropic.com)."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
+                    text = { Column { Text("Descarga la IA en el dispositivo desde Ajustes (sin internet, gratis) o pega una clave de API de Claude (console.anthropic.com)."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
                     confirmButton = { TextButton({ prefs.edit().putString("aiKey", k.trim()).apply(); askKey = false; runAi() }) { Text("Guardar") } },
                     dismissButton = { TextButton({ askKey = false }) { Text("Cancelar") } })
             }
@@ -249,7 +264,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
             Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp, start = 12.dp, end = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
-                AnimatedVisibility(showSettings) {
+                AnimatedVisibility(showSettings && !collapsed,
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
                     ToolSettings(slot, swatches, shapesOn, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot) { picker = -1 }
                 }
                 if (hasSel) Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 8.dp, modifier = Modifier.padding(bottom = 10.dp)) {
@@ -263,14 +280,22 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         } }, enabled = !converting) { Icon(Icons.Outlined.TextFields, null); Spacer(Modifier.width(6.dp)); Text("A texto") }
                     }
                 }
-                AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
+                val tbAlpha by androidx.compose.animation.core.animateFloatAsState(if (inking) 0.3f else 1f, androidx.compose.animation.core.tween(if (inking) 400 else 180), label = "tb")
+                val tbY by androidx.compose.animation.core.animateDpAsState(if (inking) 18.dp else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 0.8f), label = "tbY")
+                androidx.compose.animation.AnimatedContent(collapsed, Modifier.graphicsLayer { alpha = tbAlpha; translationY = tbY.toPx() },
+                    transitionSpec = { (androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.6f)) togetherWith (androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.6f)) using androidx.compose.animation.SizeTransform(clip = false) },
+                    label = "toolbar") { mini -> if (mini) {
+                    Surface(Modifier.size(64.dp).clickable { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 10.dp)) { ToolArt(slot, true) { collapsed = false } }
+                    }
+                } else AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
                     insertMenu = { open, close ->
                         DropdownMenu(open, close) {
                             DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(Icons.Outlined.TextFields, null) })
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(Icons.Outlined.Image, null) })
                             DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, Page(System.nanoTime(), nb.pages[pageIdx].template)); pageIdx++; dirty++ }, leadingIcon = { Icon(Icons.Outlined.NoteAdd, null) })
                         }
-                    }, onMore = { menu = true })
+                    }, onMore = { menu = true }, onCollapse = { collapsed = true; showSettings = false }) }
             }
         }
     }

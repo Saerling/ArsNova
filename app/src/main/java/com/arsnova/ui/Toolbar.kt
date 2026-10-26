@@ -100,7 +100,7 @@ private fun DrawScope.toolArt(s: Slot, sel: Boolean) {
 }
 
 @Composable
-private fun ToolArt(s: Slot, sel: Boolean, onClick: () -> Unit) {
+fun ToolArt(s: Slot, sel: Boolean, onClick: () -> Unit) {
     val lift by animateDpAsState(if (sel) 0.dp else 12.dp, spring(dampingRatio = 0.6f), label = "lift")
     Box(Modifier.width(38.dp).height(56.dp).clipToBounds().clickable(onClick = onClick)) {
         Canvas(Modifier.fillMaxSize().offset(y = lift)) { toolArt(s, sel) }
@@ -114,13 +114,14 @@ private fun ToolArt(s: Slot, sel: Boolean, onClick: () -> Unit) {
 fun AppleToolbar(
     slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSelect: (Int) -> Unit, onUndo: () -> Unit, onRedo: () -> Unit, onColor: (Int) -> Unit, onEditSwatch: (Int) -> Unit,
-    onPicker: () -> Unit, insertMenu: @Composable (Boolean, () -> Unit) -> Unit, onMore: () -> Unit,
+    onPicker: () -> Unit, insertMenu: @Composable (Boolean, () -> Unit) -> Unit, onMore: () -> Unit, onCollapse: () -> Unit = {},
 ) {
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.3f
     var plus by remember { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f), shadowElevation = 14.dp,
         modifier = Modifier.border(1.dp, Color.White.copy(alpha = if (dark) 0.12f else 0.7f), RoundedCornerShape(32.dp))) {
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onCollapse, Modifier.size(36.dp)) { Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowDown, "Minimizar", tint = MaterialTheme.colorScheme.outline) }
             IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, "Deshacer") }
             IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, "Rehacer") }
             Spacer(Modifier.width(4.dp))
@@ -135,7 +136,8 @@ fun AppleToolbar(
                         val k = r * 3 + cIdx
                         if (k < 5) {
                             val c = swatches[k]; val on = (c or 0xFF000000.toInt()) == (cur or 0xFF000000.toInt())
-                            Box(Modifier.size(22.dp).clip(CircleShape).background(Color(c)).border(if (on) 2.dp else 0.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, CircleShape)
+                            val sc by androidx.compose.animation.core.animateFloatAsState(if (on) 1.18f else 1f, spring(dampingRatio = 0.5f), label = "sw")
+                            Box(Modifier.size(22.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(Color(c)).border(if (on) 2.dp else 0.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, CircleShape)
                                 .combinedClickable(onClick = { onColor(c) }, onLongClick = { onEditSwatch(k) }))
                         } else Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
                     }

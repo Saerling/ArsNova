@@ -37,6 +37,7 @@ class InkView(context: Context) : View(context) {
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var onChange: () -> Unit = {}
     var onState: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> }
+    var onInking: (Boolean) -> Unit = {}
     /** Doble toque / botón del lápiz: abre la rueda en (x, y) de la vista. */
     var onWheel: (Float, Float) -> Unit = { _, _ -> }
     /** Modo aprender: recibe el código de botón del lápiz. Devuelve true si lo consumió. */
@@ -270,9 +271,9 @@ class InkView(context: Context) : View(context) {
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
-                add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap()
+                add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap(); onInking(true)
             }
-            Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y) }
+            Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
             Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
                 mode = Mode.MOVE_SEL; lastX = x; lastY = y
@@ -349,7 +350,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun endDraw() {
-        removeCallbacks(snap); predN = 0
+        removeCallbacks(snap); predN = 0; onInking(false)
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
@@ -399,7 +400,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun cancelDraw() {
-        removeCallbacks(snap)
+        removeCallbacks(snap); onInking(false)
         if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
         curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; ex = -1f; invalidate()
     }
