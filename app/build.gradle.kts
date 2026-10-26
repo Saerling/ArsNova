@@ -14,20 +14,18 @@ android {
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
     }
+    val ks = System.getenv("KEYSTORE_PATH")
     signingConfigs {
-        create("rel") {
-            val ks = System.getenv("KEYSTORE_PATH")
-            if (ks != null) {
-                storeFile = file(ks); storePassword = System.getenv("KEYSTORE_PASS")
-                keyAlias = System.getenv("KEY_ALIAS"); keyPassword = System.getenv("KEYSTORE_PASS")
-            } else initWith(getByName("debug"))
+        if (ks != null) create("rel") {
+            storeFile = file(ks); storePassword = System.getenv("KEYSTORE_PASS")
+            keyAlias = System.getenv("KEY_ALIAS"); keyPassword = System.getenv("KEYSTORE_PASS")
         }
     }
     buildTypes {
         release {
             isMinifyEnabled = true; isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("rel")
+            signingConfig = signingConfigs.getByName(if (ks != null) "rel" else "debug")
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
