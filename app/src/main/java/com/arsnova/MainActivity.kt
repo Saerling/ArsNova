@@ -13,6 +13,9 @@ import com.arsnova.ui.EditorScreen
 import com.arsnova.ui.LibraryScreen
 
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        com.arsnova.ui.StylusKeys.handler?.invoke(event) == true || super.dispatchKeyEvent(event)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

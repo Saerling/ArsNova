@@ -6,6 +6,7 @@ import android.graphics.*
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import androidx.input.motionprediction.MotionEventPredictor
 import com.arsnova.data.Page
 import com.arsnova.data.Stroke
 import com.arsnova.data.Tool
@@ -25,6 +26,14 @@ class InkView(context: Context) : View(context) {
     var stylusOnly = false
     var onChange: () -> Unit = {}
     var onState: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> }
+    /** Doble toque / botón del lápiz: abre la rueda en (x, y) de la vista. */
+    var onWheel: (Float, Float) -> Unit = { _, _ -> }
+    /** Modo aprender: recibe el código de botón del lápiz. Devuelve true si lo consumió. */
+    var onStylusButton: (Int) -> Boolean = { false }
+    var hoverX = -1f; private set
+    var hoverY = -1f; private set
+    private val predictor = MotionEventPredictor.newInstance(this)
+    private var predN = 0
 
     private sealed class Op {
         class Add(val s: Stroke) : Op()
@@ -43,6 +52,7 @@ class InkView(context: Context) : View(context) {
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val shadow = Paint().apply { color = 0x22000000; maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL) }
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFD9481F.toInt(); strokeWidth = 2f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
+    private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
 
     private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV }
@@ -145,10 +155,18 @@ class InkView(context: Context) : View(context) {
             c.save(); c.translate(selDx, selDy); sel.forEach { Ink.drawStroke(c, it) }
             dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
         }
-        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN, if (curHl) hlWidth else penWidth, curHl, if (curHl) hlColor(color) else color)
+        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else penWidth, curHl, if (curHl) hlColor(color) else color)
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
         if (mode == Mode.ERASE && ex >= 0) c.drawCircle(ex, ey, eraserRadius, cursor)
+        if (mode == Mode.NONE && hoverX >= 0) when (tool) {
+            Tool.ERASER -> c.drawCircle(hoverX, hoverY, eraserRadius, cursor)
+            Tool.PEN, Tool.HIGHLIGHTER -> {
+                hoverPaint.color = if (tool == Tool.HIGHLIGHTER) hlColor(color) else (color and 0x00FFFFFF) or 0x99000000.toInt()
+                c.drawCircle(hoverX, hoverY, ((if (tool == Tool.HIGHLIGHTER) hlWidth else penWidth) * scale / 2).coerceAtLeast(2.5f), hoverPaint)
+            }
+            else -> {}
+        }
     }
 
     // ---------- input ----------
@@ -157,8 +175,10 @@ class InkView(context: Context) : View(context) {
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         page ?: return false
+        predictor.record(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                requestUnbufferedDispatch(e); hoverX = -1f
                 parent?.requestDisallowInterceptTouchEvent(true)
                 isStylus = stylusAt(e, 0)
                 if (isStylus || !stylusOnly) begin(e, 0) else { mode = Mode.NAV; navReset(e, -1) }
@@ -205,6 +225,14 @@ class InkView(context: Context) : View(context) {
         val i = e.findPointerIndex(pid); if (i < 0) return
         for (h in 0 until e.historySize) point(e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalPressure(i, h))
         point(e.getX(i), e.getY(i), e.getPressure(i))
+        predN = 0
+        if (mode == Mode.DRAW && !snapped && curN >= 3) predictor.predict()?.let { pe ->
+            val pi = pe.findPointerIndex(pid).coerceAtLeast(0)
+            val q = toPage(pe.getX(pi), pe.getY(pi))
+            if (curN + 3 > cur.size) cur = cur.copyOf(cur.size * 2)
+            cur[curN] = q[0]; cur[curN + 1] = q[1]; cur[curN + 2] = cur[curN - 1]; predN = 3
+            pe.recycle()
+        }
         invalidate()
     }
 
@@ -256,7 +284,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun endDraw() {
-        removeCallbacks(snap)
+        removeCallbacks(snap); predN = 0
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
@@ -290,6 +318,25 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(snap)
         if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
         curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; ex = -1f; invalidate()
+    }
+
+    // ---------- hover / botones del lápiz ----------
+    override fun onHoverEvent(e: MotionEvent): Boolean {
+        if (!stylusAt(e, 0)) return super.onHoverEvent(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hoverX = e.x; hoverY = e.y }
+            MotionEvent.ACTION_HOVER_EXIT -> hoverX = -1f
+        }
+        invalidate(); return true
+    }
+
+    override fun onGenericMotionEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && stylusAt(e, 0) && mode == Mode.NONE) {
+            val code = 1000 + e.actionButton
+            if (!onStylusButton(code)) onWheel(e.x, e.y)
+            return true
+        }
+        return super.onGenericMotionEvent(e)
     }
 
     // ---------- nav ----------

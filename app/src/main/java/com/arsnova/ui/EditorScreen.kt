@@ -33,7 +33,7 @@ import com.arsnova.ink.InkView
 import kotlinx.coroutines.delay
 import java.io.File
 
-private val EraserIcon = ImageVector.Builder("eraser", 24.dp, 24.dp, 24f, 24f).path(fill = androidx.compose.ui.graphics.SolidColor(Color.Black)) {
+val EraserIcon = ImageVector.Builder("eraser", 24.dp, 24.dp, 24f, 24f).path(fill = androidx.compose.ui.graphics.SolidColor(Color.Black)) {
     moveTo(16.24f, 3.56f); lineTo(21.19f, 8.5f); curveTo(21.97f, 9.29f, 21.97f, 10.55f, 21.19f, 11.34f)
     lineTo(12f, 20.53f); horizontalLineTo(20f); verticalLineTo(22.5f); horizontalLineTo(8f); lineTo(2.81f, 17.3f)
     curveTo(2.03f, 16.52f, 2.03f, 15.26f, 2.81f, 14.47f); lineTo(13.41f, 3.56f); curveTo(14.2f, 2.78f, 15.46f, 2.78f, 16.24f, 3.56f); close()
@@ -58,6 +58,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var hasSel by remember { mutableStateOf(false) }
     var dirty by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    var wheelAt by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    var learning by remember { mutableStateOf(false) }
+    var learned by remember { mutableIntStateOf(prefs.getInt("tapCode", -1)) }
 
     val view = remember { InkView(ctx) }
     fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
@@ -65,11 +68,30 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
+        view.onWheel = { x, y -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(x, y) else null }
+        view.onStylusButton = { code ->
+            if (learning) { learned = code; prefs.edit().putInt("tapCode", code).apply(); learning = false; true } else false
+        }
         view.page = nb.pages[pageIdx]; view.tool = tool; view.color = color
         view.penWidth = penW; view.hlWidth = hlW; view.stylusOnly = stylusOnly
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
-    DisposableEffect(Unit) { onDispose { save(); prefs.edit().putFloat("penW", penW).putFloat("hlW", hlW).putBoolean("stylusOnly", stylusOnly).apply() } }
+    DisposableEffect(Unit) {
+        StylusKeys.handler = { e ->
+            val c = e.keyCode
+            val match = (learning && e.action == android.view.KeyEvent.ACTION_DOWN && c !in setOf(android.view.KeyEvent.KEYCODE_BACK, android.view.KeyEvent.KEYCODE_VOLUME_UP, android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) ||
+                c == learned || c in StylusKeys.NATIVE
+            if (!match) false else {
+                if (e.action == android.view.KeyEvent.ACTION_UP) {
+                    if (learning) { learned = c; prefs.edit().putInt("tapCode", c).apply(); learning = false }
+                    else wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(
+                        if (view.hoverX >= 0) view.hoverX else view.width / 2f, if (view.hoverY >= 0) view.hoverY else view.height / 2f) else null
+                }
+                true
+            }
+        }
+        onDispose { StylusKeys.handler = null
+ save(); prefs.edit().putFloat("penW", penW).putFloat("hlW", hlW).putBoolean("stylusOnly", stylusOnly).apply() } }
 
     Scaffold(
         topBar = {
@@ -95,6 +117,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         }, leadingIcon = { Icon(Icons.Outlined.GridOn, null) })
                         DropdownMenuItem({ Text("Solo lápiz (rechazo de palma)") }, { stylusOnly = !stylusOnly },
                             leadingIcon = { Icon(Icons.Outlined.Draw, null) }, trailingIcon = { Checkbox(stylusOnly, null) })
+                        DropdownMenuItem({ Text("Configurar doble toque del lápiz") }, { learning = true; menu = false },
+                            leadingIcon = { Icon(Icons.Outlined.TouchApp, null) })
                         DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(Icons.Outlined.FitScreen, null) })
                         DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) })
                     }
@@ -105,6 +129,12 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             AndroidView({ view }, Modifier.fillMaxSize())
+            if (learning) AlertDialog({ learning = false }, confirmButton = { TextButton({ learning = false }) { Text("Cancelar") } },
+                title = { Text("Doble toque") }, text = { Text("Haz doble toque en tu lápiz ahora (o pulsa su botón). ArsNova lo usará para abrir la rueda de herramientas.") })
+            wheelAt?.let { at ->
+                ToolWheel(at, tool, color, { tool = it; wheelAt = null }, { color = it; if (hasSel) view.recolorSelection(it); wheelAt = null },
+                    view::undo, view::redo) { wheelAt = null }
+            }
             Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(showWidth && (tool == Tool.PEN || tool == Tool.HIGHLIGHTER)) {
                     Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 8.dp, modifier = Modifier.padding(bottom = 10.dp).width(260.dp)) {
@@ -128,6 +158,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         T(Tool.HIGHLIGHTER, Icons.Outlined.BorderColor, "Resaltador")
                         T(Tool.ERASER, EraserIcon, "Borrador")
                         T(Tool.LASSO, Icons.Outlined.Gesture, "Lazo")
+                        IconButton({ wheelAt = androidx.compose.ui.geometry.Offset(view.width / 2f, view.height / 2f) }) { Icon(Icons.Outlined.DonutLarge, "Rueda") }
                         VerticalDivider(Modifier.height(28.dp).padding(horizontal = 8.dp))
                         PenColors.forEach { c ->
                             Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Color(c))
