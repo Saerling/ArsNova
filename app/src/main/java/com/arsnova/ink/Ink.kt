@@ -75,6 +75,7 @@ object Ink {
         }
         return tapeP
     }
+    private val core = Path()
     private val flat = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     fun styleOf(s: Stroke) = if (s.hl) 6 else s.style
@@ -108,6 +109,13 @@ object Ink {
         }
         fill.color = color; fill.shader = if (style == 2) grain else null
         c.drawPath(path, fill)
+        if (style == 0 || style == 2 || style == 3 || style == 4) {
+            // Relleno del núcleo: tapa los huecos donde el contorno se cruza en giros cerrados.
+            core.reset(); core.moveTo(pts[0], pts[1]); var k = 3
+            while (k < n) { core.lineTo(pts[k], pts[k + 1]); k += 3 }
+            flat.color = color; flat.shader = fill.shader; flat.strokeWidth = width * (if (style == 3) 0.18f else if (style == 4) 0.9f else 0.42f)
+            c.drawPath(core, flat); flat.shader = null
+        }
         if (style == 1) { c.drawCircle(pts[0], pts[1], radius(1, width, pts[2], 1f, 0f), fill); c.drawCircle(pts[n - 3], pts[n - 2], radius(1, width, pts[n - 1], 1f, 0f), fill) }
         fill.shader = null
     }
