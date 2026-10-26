@@ -50,7 +50,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
     var renaming by remember { mutableStateOf<NotebookMeta?>(null) }
     var importing by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
-    val fp = remember { ctx.getSharedPreferences("ars", 0) }
+    val fp = remember { ctx0.getSharedPreferences("ars", 0) }
     var folders by remember { mutableStateOf(fp.getString("folders", "")!!.split("|").filter { it.isNotBlank() }) }
     var folder by remember { mutableStateOf("") }
     var newFolder by remember { mutableStateOf(false) }
