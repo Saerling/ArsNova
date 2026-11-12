@@ -75,4 +75,19 @@ class InkRenderTest {
         d.setBounds(0, 0, d.intrinsicWidth, d.intrinsicHeight); c.translate(20f, 60f); d.draw(c)
         File("build/ink").apply { mkdirs() }.let { File(it, "latex.png").outputStream().use { o -> b.compress(Bitmap.CompressFormat.PNG, 100, o) } }
     }
+
+    /** Un trazo que solo avanza hacia la izquierda y hacia arriba (línea recta, cinta) debe tener límites válidos. */
+    @Test fun boundsOfMonotoneStroke() {
+        val b = Stroke(1, Color.BLACK, 6f, pts = floatArrayOf(300f, 300f, .5f, 200f, 200f, .5f, 100f, 100f, .5f)).bounds
+        org.junit.Assert.assertTrue("límites rotos: $b", b.left < 100f && b.right > 300f && b.top < 100f && b.bottom > 300f)
+    }
+
+    /** El resaltador no debe volver transparente la hoja: sobre blanco queda un amarillo claro y opaco. */
+    @Test fun highlighterKeepsPaperOpaque() {
+        val b = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888); val c = Canvas(b); c.drawColor(Color.WHITE); Ink.darkPaper = false
+        Ink.drawStroke(c, Stroke(1, 0x66F2B705, 40f, true, floatArrayOf(20f, 50f, .5f, 100f, 50f, .5f, 180f, 50f, .5f), style = 6))
+        val px = b.getPixel(100, 50)
+        org.junit.Assert.assertEquals("la hoja quedó transparente", 255, Color.alpha(px))
+        org.junit.Assert.assertTrue("no es amarillo claro: ${Integer.toHexString(px)}", Color.red(px) > 230 && Color.green(px) > 200 && Color.blue(px) in 90..200)
+    }
 }

@@ -308,10 +308,6 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     TextButton({ learning = false }) { Text("Cancelar", color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
-            wheelAt?.let { at ->
-                ToolWheel(at, slots, if (textTool) -1 else active, swatches, canUndo, canRedo,
-                    onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
-                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
             if (editBar) BarEditor(slots, grouped, barArt, { l -> slots = l; Slots.save(prefs, l); active = active.coerceIn(0, l.size - 1); lastPen = l.indexOfFirst { it.tool == Tool.PEN }.coerceAtLeast(0) },
                 { grouped = it; prefs.edit().putBoolean("grouped", it).apply() }, { barArt = it; prefs.edit().putBoolean("barArt", it).apply() }) { editBar = false }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
@@ -422,6 +418,10 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         }
                     }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false; picker = null }, dock = dock, handle = handle, grouped = grouped, penIdx = lastPen, art = barArt)
             }
+            wheelAt?.let { at ->
+                ToolWheel(at, slots, if (textTool) -1 else active, swatches, canUndo, canRedo,
+                    onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
+                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
             if (latexView) {
                 val pg = nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)]
                 var tex by remember(pg) { mutableStateOf(pg.tex) }

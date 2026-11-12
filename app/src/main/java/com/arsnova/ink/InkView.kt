@@ -38,7 +38,9 @@ class InkView(context: Context) : View(context) {
     var eraserPixel = false
     var tapeWidth = 40f
     var tapePattern = 0
-    private val laser = ArrayList<FloatArray>()
+    private val laser = ArrayList<FloatArray>()   // x, y, instante (ms desde laserT0), 1 = empieza trazo
+    private var laserT0 = 0L
+    private fun laserNow(): Float { val t = android.os.SystemClock.uptimeMillis(); if (laser.isEmpty()) laserT0 = t; return (t - laserT0).toFloat() }
     private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val pieces = ArrayList<Stroke>()
     var replayTime = -1L
@@ -453,9 +455,10 @@ class InkView(context: Context) : View(context) {
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
         if (laser.isNotEmpty()) {
-            val now = System.currentTimeMillis().toFloat() % 1e7f
-            laser.removeAll { now - it[2] > 650f || now < it[2] }
-            for (k in 1 until laser.size) { val a0 = laser[k - 1]; val a1 = laser[k]; val f = 1f - (now - a1[2]) / 650f
+            val now = (android.os.SystemClock.uptimeMillis() - laserT0).toFloat()
+            laser.removeAll { now - it[2] > 700f }
+            for (k in 1 until laser.size) { val a0 = laser[k - 1]; val a1 = laser[k]; if (a1[3] == 1f) continue
+                val f = (1f - (now - a1[2]) / 700f).coerceIn(0f, 1f)
                 laserPaint.color = (color and 0x00FFFFFF) or ((90 * f).toInt() shl 24); laserPaint.strokeWidth = dp(10f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint)
                 laserPaint.color = (0x00FFFFFF) or ((230 * f).toInt() shl 24); laserPaint.strokeWidth = dp(3f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint) }
             postInvalidateOnAnimation()
@@ -537,7 +540,7 @@ class InkView(context: Context) : View(context) {
             Tool.TAPE -> { val hitT = hitStroke(x, y)?.takeIf { it.style == 11 }
                 if (hitT != null) { hitT.hid = !hitT.hid; repaint(page!!, hitT.bounds); mode = Mode.NONE; onChange() }
                 else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
-            Tool.LASER -> { mode = Mode.LASER; laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f)) }
+            Tool.LASER -> { mode = Mode.LASER; val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 1f)) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
             Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
                 mode = Mode.MOVE_SEL; lastX = x; lastY = y; selF = 1f
@@ -591,7 +594,7 @@ class InkView(context: Context) : View(context) {
                 add(bx + (gx - bx) * k, by + (gy - by) * k, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
-            Mode.LASER -> laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f))
+            Mode.LASER -> { val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 0f)) }
             Mode.LASSO -> lasso.lineTo(x, y)
             Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
             Mode.MOVE_SEL -> if (resizing) selF = (hypot(x - selBounds.left, y - selBounds.top) / hypot(selBounds.width(), selBounds.height()).coerceAtLeast(1f)).coerceIn(0.15f, 8f)

@@ -23,7 +23,9 @@ object Ink {
     private val hlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val hlMul = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+    // PorterDuff.MULTIPLY de Android también multiplica la opacidad: dejaba la hoja semitransparente bajo el resaltador
+    // y, con la mesa oscura detrás, el amarillo se veía marrón. BlendMode.MULTIPLY (o DARKEN en Android < 10) no toca la hoja.
+    private val hlDarken = PorterDuffXfermode(PorterDuff.Mode.DARKEN)
     private val hlScr = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
     /** Papel oscuro bajo el trazo: el resaltador aclara en vez de multiplicar (si no, desaparece). */
     @Volatile var darkPaper = false
@@ -86,7 +88,8 @@ object Ink {
     private fun draw(c: Canvas, path: Path, pts: FloatArray, n: Int, width: Float, style: Int, color: Int) {
         if (n < 3) return
         when (style) {
-            6 -> { hlPaint.color = color; hlPaint.strokeWidth = width; hlPaint.xfermode = if (darkPaper) hlScr else hlMul; c.drawPath(path, hlPaint); return }
+            6 -> { hlPaint.color = color; hlPaint.strokeWidth = width; if (darkPaper) hlPaint.xfermode = hlScr else if (android.os.Build.VERSION.SDK_INT >= 29) hlPaint.blendMode = BlendMode.MULTIPLY else hlPaint.xfermode = hlDarken
+                c.drawPath(path, hlPaint); return }
             5 -> { flat.color = color; flat.strokeWidth = width; c.drawPath(path, flat); return }
             8 -> { glow.color = color; glow.strokeWidth = width * 1.6f; glow.maskFilter = BlurMaskFilter(width * 0.9f, BlurMaskFilter.Blur.NORMAL); c.drawPath(path, glow)
                 glow.maskFilter = null; glow.strokeWidth = width * 0.7f; c.drawPath(path, glow); glow.color = 0xEEFFFFFF.toInt(); glow.strokeWidth = width * 0.28f; c.drawPath(path, glow); return }

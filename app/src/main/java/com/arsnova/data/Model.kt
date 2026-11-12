@@ -46,11 +46,15 @@ class Stroke(
     @Transient var path: Path? = null
     @Transient private var b: RectF? = null
     val bounds: RectF
-        get() = b ?: RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE).also { r ->
-            var i = 0
-            while (i < pts.size) { r.union(pts[i], pts[i + 1]); i += 3 }
-            val m = if (style == 8 || style == 9) width * 2.4f else width
-            r.inset(-m, -m); b = r
+        get() = b ?: RectF().also { r ->
+            // mínimos y máximos a mano: RectF.union(x, y) sobre un rectángulo vacío falla cuando el trazo solo avanza
+            // hacia la izquierda o hacia arriba (una línea recta, una cinta), y el trazo quedaba "sin sitio":
+            // no se podía borrar y desaparecía al repintar la zona.
+            var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var rr = -Float.MAX_VALUE; var bb = -Float.MAX_VALUE; var i = 0
+            while (i + 1 < pts.size) { val x = pts[i]; val y = pts[i + 1]; if (x < l) l = x; if (x > rr) rr = x; if (y < t) t = y; if (y > bb) bb = y; i += 3 }
+            if (l > rr) { l = 0f; rr = 0f; t = 0f; bb = 0f }
+            val m = (if (style == 8 || style == 9) width * 2.4f else width).coerceAtLeast(1f)
+            r.set(l - m, t - m, rr + m, bb + m); b = r
         }
 
     fun offset(dx: Float, dy: Float) {

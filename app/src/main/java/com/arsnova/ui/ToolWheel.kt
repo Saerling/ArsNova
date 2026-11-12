@@ -194,7 +194,7 @@ fun ToolWheel(
             }
         }
         // bajo la rueda: deshacer · qué hay en la mano · rehacer
-        val below = cy + rp + with(d) { 64.dp.toPx() } < box.height
+        val below = cy + rp + with(d) { 170.dp.toPx() } < box.height || cy - rp < with(d) { 130.dp.toPx() }
         Row(Modifier.offset { IntOffset((cx - rp).roundToInt(), (if (below) cy + rp + 10.dp.toPx() else cy - rp - 58.dp.toPx()).roundToInt()) }.width(radius * 2)
             .graphicsLayer { alpha = open.value.coerceIn(0f, 1f); translationY = (1f - open.value) * (if (below) -18f else 18f) },
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
