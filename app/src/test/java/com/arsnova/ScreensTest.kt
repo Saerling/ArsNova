@@ -36,6 +36,7 @@ class ScreensTest {
     @get:Rule val rule = createComposeRule()
 
     private fun repo(): Pair<Repo, String> {
+        RuntimeEnvironment.getApplication().getSharedPreferences("ars", 0).edit().putBoolean("autoUpdate", false).commit() // sin red en las capturas
         val r = Repo(RuntimeEnvironment.getApplication()); com.arsnova.ink.Ink.bgDir = r.dir
         val id = r.create("Termodinámica", 0xFF2D5BD9.toInt(), Template.GRID, 0)
         r.create("Balance de materia", 0xFF1C1C1E.toInt(), Template.LINED, 4); r.create("Ideas", 0xFF1F8A5B.toInt(), Template.DOTS, 1)
