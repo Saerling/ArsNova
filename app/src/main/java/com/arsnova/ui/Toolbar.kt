@@ -15,12 +15,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Redo
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,12 +123,6 @@ fun ToolArt(s: Slot, sel: Boolean, label: Boolean = true, onClick: () -> Unit) {
     }
 }
 
-private val LassoIcon = androidx.compose.ui.graphics.vector.ImageVector.Builder("lasso", 24.dp, 24.dp, 24f, 24f).apply {
-    addPath(androidx.compose.ui.graphics.vector.PathParser().parsePathString("M12 4C7 4 3 6.7 3 10s4 6 9 6 9-2.7 9-6-4-6-9-6z").toNodes(), stroke = SolidColor(Color.Black), strokeLineWidth = 1.8f,
-        strokeLineCap = StrokeCap.Round)
-    addPath(androidx.compose.ui.graphics.vector.PathParser().parsePathString("M7 15.5c-1.2 1.2-1.4 3 .2 3.9 1.4.8 2.8-.3 2.3-1.8").toNodes(), stroke = SolidColor(Color.Black), strokeLineWidth = 1.8f, strokeLineCap = StrokeCap.Round)
-}.build()
-
 /** Barra compacta estilo Samsung Notes: un botón por herramienta, colores y acciones. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -147,42 +135,44 @@ fun AppleToolbar(
     val cs = MaterialTheme.colorScheme; val dark = cs.background.luminance() < 0.3f
     var plus by remember { mutableStateOf(false) }
     val vertical = dock != 0
-    val shape = RoundedCornerShape(26.dp)
+    val shape = squircle(28)
     val cur = slots.getOrNull(active)?.color ?: slots[0].color
     @Composable fun Sep() = Box(Modifier.padding(4.dp).size(if (vertical) 22.dp else 1.dp, if (vertical) 1.dp else 22.dp).background(cs.outline.copy(alpha = 0.35f)))
     @Composable fun ToolBtn(i: Int) {
         val s = slots[i]; val on = i == active
-        val bg by androidx.compose.animation.animateColorAsState(if (on) cs.onSurface.copy(alpha = 0.12f) else Color.Transparent, label = "tb")
-        Box(Modifier.padding(2.dp).size(44.dp).clip(RoundedCornerShape(14.dp)).background(bg).clickable { onSelect(i) }, contentAlignment = Alignment.Center) {
-            Icon(when (s.tool) { Tool.PEN -> Icons.Rounded.Create; Tool.HIGHLIGHTER -> Icons.Rounded.BorderColor; Tool.ERASER -> EraserIcon; Tool.LASSO -> LassoIcon; Tool.TAPE -> Icons.Rounded.CropDin; Tool.LASER -> Icons.Rounded.Adjust; else -> Icons.Rounded.TextFields },
-                s.name, tint = if (on) cs.onSurface else cs.onSurface.copy(alpha = 0.7f))
-            if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER || s.tool == Tool.TAPE || s.tool == Tool.LASER) Box(Modifier.align(Alignment.BottomEnd).padding(7.dp).size(9.dp).clip(CircleShape).background(Color(s.color).copy(alpha = 1f)).border(1.dp, cs.surface, CircleShape))
+        val bg by androidx.compose.animation.animateColorAsState(if (on) Ars.Text else Color.Transparent, androidx.compose.animation.core.tween(180), label = "tb")
+        val fg by androidx.compose.animation.animateColorAsState(if (on) Ars.Bg else Ars.Text.copy(alpha = 0.62f), androidx.compose.animation.core.tween(180), label = "tf")
+        val pop by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0.9f, spring(dampingRatio = 0.5f, stiffness = 520f), label = "tp")
+        Box(Modifier.padding(2.dp).size(44.dp).bounceClick(scale = 0.84f) { onSelect(i) }.graphicsLayer { scaleX = pop; scaleY = pop }.clip(squircle(15)).background(bg), contentAlignment = Alignment.Center) {
+            Icon(when (s.tool) { Tool.PEN -> ArsIcons.Pen; Tool.HIGHLIGHTER -> ArsIcons.Highlighter; Tool.ERASER -> ArsIcons.Eraser; Tool.LASSO -> ArsIcons.Lasso; Tool.TAPE -> ArsIcons.Tape; Tool.LASER -> ArsIcons.Laser; else -> ArsIcons.Text },
+                s.name, tint = fg)
+            if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER || s.tool == Tool.TAPE || s.tool == Tool.LASER) Box(Modifier.align(Alignment.BottomEnd).padding(6.dp).size(9.dp).clip(CircleShape).background(Color(s.color).copy(alpha = 1f)).border(1.5.dp, if (on) Ars.Text else Ars.Glass.copy(alpha = 1f), CircleShape))
         }
     }
     @Composable fun Dot(c: Int, k: Int) {
         val on = (c or 0xFF000000.toInt()) == (cur or 0xFF000000.toInt())
-        Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Color(c)).border(if (on) 2.5.dp else 1.dp, if (on) cs.onSurface else Color.Black.copy(alpha = 0.12f), CircleShape)
+        val sc by androidx.compose.animation.core.animateFloatAsState(if (on) 1.12f else 1f, spring(dampingRatio = 0.45f, stiffness = 520f), label = "dot")
+        Box(Modifier.padding(4.dp).size(26.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(Color(c)).border(if (on) 2.5.dp else 1.dp, if (on) cs.onSurface else Ars.GlassBorder, CircleShape)
             .combinedClickable(onClick = { onColor(c) }, onLongClick = { onEditSwatch(k) }), contentAlignment = Alignment.Center) {
-            if (on) Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) }
+            if (on) Icon(ArsIcons.Check, null, Modifier.size(14.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) }
     }
     @Composable fun Items() {
-        IconButton(onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Rounded.Undo, "Deshacer") }
-        IconButton(onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Rehacer") }
+        IconButton(onUndo, enabled = canUndo) { Icon(ArsIcons.Undo, "Deshacer") }
+        IconButton(onRedo, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") }
         Sep()
         slots.indices.forEach { ToolBtn(it) }
         Sep()
         (if (vertical) swatches.take(2) else swatches).forEachIndexed { k, c -> Dot(c, k) }
         Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
         Sep()
-        Box { IconButton({ plus = true }) { Icon(Icons.Rounded.Add, "Insertar") }; insertMenu(plus) { plus = false } }
-        IconButton(onMore) { Icon(Icons.Rounded.MoreHoriz, "Más") }
-        IconButton(onCollapse) { Icon(Icons.Rounded.KeyboardArrowDown, "Minimizar", tint = cs.outline,
+        Box { IconButton({ plus = true }) { Icon(ArsIcons.Add, "Insertar") }; insertMenu(plus) { plus = false } }
+        IconButton(onMore) { Icon(ArsIcons.More, "Más") }
+        IconButton(onCollapse) { Icon(ArsIcons.Down, "Minimizar", tint = cs.outline,
             modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; else -> 0f } }) }
     }
     val grip = @Composable { Box(handle.size(if (vertical) 48.dp else 26.dp, if (vertical) 26.dp else 48.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.size(if (vertical) 24.dp else 4.dp, if (vertical) 4.dp else 24.dp).clip(CircleShape).background(cs.outline.copy(alpha = 0.55f))) } }
-    Surface(shape = shape, color = cs.surface.copy(alpha = 0.92f), shadowElevation = 12.dp,
-        modifier = Modifier.border(1.dp, Color.White.copy(alpha = if (dark) 0.08f else 0.7f), shape)) {
+    Surface(shape = shape, color = Ars.Glass, shadowElevation = 10.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
         if (vertical) Column(Modifier.padding(vertical = 6.dp).widthIn(max = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             grip(); Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { Items() } }
         else Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -194,7 +184,7 @@ fun AppleToolbar(
 @Composable
 fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onPicker: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 16.dp, color = cs.surface.copy(alpha = 0.96f), modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) {
+    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) {
         Column(Modifier.padding(18.dp, 14.dp)) {
             if (s.tool == Tool.PEN) {
                 Row(Modifier.fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
@@ -215,7 +205,7 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                     IconButton({ onChange(s.copy(width = (s.width - 1).coerceIn(range))) }) { Text("—", color = cs.onSurface) }
                     Slider(s.width, { onChange(s.copy(width = it)) }, Modifier.weight(1f), valueRange = range)
-                    IconButton({ onChange(s.copy(width = (s.width + 1).coerceIn(range))) }) { Icon(Icons.Rounded.Add, null) }
+                    IconButton({ onChange(s.copy(width = (s.width + 1).coerceIn(range))) }) { Icon(ArsIcons.Add, null) }
                     Box(Modifier.size(36.dp).clip(CircleShape).background(cs.onSurface.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
                         Text(s.width.toInt().toString(), style = MaterialTheme.typography.labelLarge, color = cs.onSurface) }
                 }
@@ -223,7 +213,7 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
             if (s.tool == Tool.TAPE || s.tool == Tool.LASER) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                 listOf(0xFF7FB3D5, 0xFFF5B7B1, 0xFFA9DFBF, 0xFFF9E79F, 0xFFD7BDE2, 0xFFFF3B30, 0xFF1D1B18).map { it.toInt() }.forEach { c -> val on = c == s.color
                     Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).clickable { onChange(s.copy(color = c)) }, contentAlignment = Alignment.Center) {
-                        if (on) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = Color.White) } }
+                        if (on) Icon(ArsIcons.Check, null, Modifier.size(16.dp), tint = Color.White) } }
             }
             if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Estabilización", Modifier.weight(1f), color = cs.onSurface); Text("${(s.stab * 100).toInt()}%", color = cs.outline) }
@@ -237,7 +227,7 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boo
                     quick.forEach { c -> val on = (c or 0xFF000000.toInt()) == (s.color or 0xFF000000.toInt())
                         Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).border(1.dp, Color.Black.copy(alpha = 0.12f), CircleShape)
                             .clickable { onChange(s.copy(color = (c and 0x00FFFFFF) or (s.color and 0xFF000000.toInt()))) }, contentAlignment = Alignment.Center) {
-                            if (on) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) } }
+                            if (on) Icon(ArsIcons.Check, null, Modifier.size(16.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) } }
                     Box(Modifier.size(30.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
                 }
             }

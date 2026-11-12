@@ -4,14 +4,22 @@ import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import com.arsnova.data.Template
 import com.arsnova.data.Updater
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +34,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     var stylus by remember { mutableStateOf(p.getBoolean("stylusOnly", false)) }
     var tapAction by remember { mutableIntStateOf(p.getInt("tapAction", 0)) }
     var shapes by remember { mutableStateOf(p.getBoolean("shapes", true)) }
+    var gestures by remember { mutableStateOf(p.getBoolean("tapGestures", true)) }
     var auto by remember { mutableStateOf(p.getBoolean("autoUpdate", true)) }
     var tpl by remember { mutableIntStateOf(p.getInt("tpl", 1)) }
     var key by remember { mutableStateOf(p.getString("aiKey", "") ?: "") }
@@ -33,7 +42,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    @Composable fun Header(t: String) = Text(t, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 6.dp))
+    @Composable fun Header(t: String) = Text(t, style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(start = 30.dp, top = 26.dp, bottom = 8.dp))
     @Composable fun Toggle(t: String, sub: String, v: Boolean, on: (Boolean) -> Unit) =
         ListItem({ Text(t) }, supportingContent = { Text(sub) }, trailingContent = { Switch(v, on) }, modifier = Modifier.clickable { on(!v) })
     @Composable fun Choice(t: String, opts: List<String>, sel: Int, on: (Int) -> Unit) = Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -43,12 +52,13 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
         }
     }
 
-    Ambient { Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar({ Text("Ajustes", style = MaterialTheme.typography.headlineLarge) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent), navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás") } }) }) { pad ->
+    Ambient { Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar({ Text("Ajustes", style = MaterialTheme.typography.headlineLarge) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent), navigationIcon = { IconButton(onBack) { Icon(ArsIcons.Back, "Atrás") } }) }) { pad ->
         LazyColumn(Modifier.padding(pad)) {
             item { Header("Apariencia"); Group {; Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme) } }
             item {
                 Header("Lápiz"); Group {
                 Toggle("Solo lápiz", "Rechazo de palma: el dedo solo mueve y hace zoom", stylus) { stylus = it; p.edit().putBoolean("stylusOnly", it).apply() }
+                Toggle("Gestos con los dedos", "Toque con dos dedos para deshacer, con tres para rehacer", gestures) { gestures = it; p.edit().putBoolean("tapGestures", it).apply() }
                 Choice("Doble toque del lápiz", listOf("Rueda", "Borrador", "Deshacer", "Lazo", "Nada"), tapAction) { tapAction = it; p.edit().putInt("tapAction", it).apply() }
                 Text("Compatible con Huawei M-Pencil (2.ª/3.ª gen/Pro), S Pen y lápices USI. Si tu lápiz usa otro gesto, configúralo desde ⋯ en el editor.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(horizontal = 20.dp)) } }
@@ -93,17 +103,40 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     upd?.let { UpdateDialog(it) { upd = null } }
 }
 
+/**
+ * Ventana de actualización con la forma de la de BitChord (github.com/kushagrasinghx/BitChord, GPL-3.0,
+ * ui/components/UpdateAvailableDialog.kt): tarjeta estrecha tipo alerta de iOS, líneas finísimas, acciones a
+ * todo el ancho apiladas bajo el mensaje y el progreso de la descarga como un relleno fino.
+ */
 @Composable
 fun UpdateDialog(r: Updater.Rel, onDismiss: () -> Unit) {
     val ctx = LocalContext.current; val scope = rememberCoroutineScope()
     var prog by remember { mutableStateOf<Float?>(null) }
-    AlertDialog(onDismiss, title = { Text("Nueva versión ${r.tag}") },
-        text = { Column { Text(r.notes.ifBlank { "Hay una actualización disponible." }, maxLines = 8)
-            prog?.let { LinearProgressIndicator({ it }, Modifier.fillMaxWidth().padding(top = 12.dp)) } } },
-        confirmButton = { TextButton({ if (prog == null) { prog = 0f; scope.launch {
-            val f = runCatching { withContext(Dispatchers.IO) { Updater.download(ctx, r) { v -> prog = v } } }.getOrNull()
-            prog = null
-            if (f != null) { Updater.install(ctx, f); onDismiss() } else android.widget.Toast.makeText(ctx, "Falló la descarga", android.widget.Toast.LENGTH_SHORT).show()
-        } } }, enabled = prog == null) { Text("Actualizar") } },
-        dismissButton = { TextButton(onDismiss) { Text("Más tarde") } })
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.tween(220)) }
+    androidx.compose.ui.window.Dialog({ if (prog == null) onDismiss() }) {
+        Column(Modifier.graphicsLayer { val k = 1.12f - 0.12f * appear.value; scaleX = k; scaleY = k; alpha = appear.value }
+            .width(280.dp).clip(RoundedCornerShape(18.dp)).background(Ars.Sheet)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Nueva versión disponible", style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp), textAlign = TextAlign.Center)
+                Text("ArsNova ${r.tag}", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = Ars.Muted, textAlign = TextAlign.Center)
+                if (r.notes.isNotBlank()) Text(r.notes, Modifier.padding(top = 10.dp).heightIn(max = 200.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp), textAlign = TextAlign.Center)
+                prog?.let { v ->
+                    Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(Ars.Text.copy(alpha = 0.14f))) {
+                        Box(Modifier.fillMaxWidth(v.coerceIn(0f, 1f)).height(4.dp).clip(CircleShape).background(Ars.Text)) }
+                }
+            }
+            @Composable fun Action(t: String, strong: Boolean, enabled: Boolean, on: () -> Unit) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Ars.Line))
+                Box(Modifier.fillMaxWidth().height(46.dp).clickable(enabled = enabled, onClick = on), contentAlignment = Alignment.Center) {
+                    Text(t, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Medium), color = Ars.Text.copy(alpha = if (enabled) 1f else 0.4f)) }
+            }
+            Action(if (prog == null) "Actualizar" else "Descargando…", true, prog == null) { prog = 0f; scope.launch {
+                val f = runCatching { withContext(Dispatchers.IO) { Updater.download(ctx, r) { v -> prog = v } } }.getOrNull()
+                prog = null
+                if (f != null) { Updater.install(ctx, f); onDismiss() } else android.widget.Toast.makeText(ctx, "Falló la descarga", android.widget.Toast.LENGTH_SHORT).show()
+            } }
+            Action("Más tarde", false, prog == null, onDismiss)
+        }
+    }
 }

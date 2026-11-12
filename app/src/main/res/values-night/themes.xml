@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.ArsNova" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+    <color name="paper">#0E0E10</color>
+</resources>

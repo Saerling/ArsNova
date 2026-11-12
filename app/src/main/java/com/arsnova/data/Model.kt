@@ -36,7 +36,7 @@ object PtsSerializer : KSerializer<FloatArray> {
 class Stroke(
     val id: Long,
     var color: Int,
-    val width: Float,
+    var width: Float,
     val hl: Boolean = false,
     @Serializable(with = PtsSerializer::class) var pts: FloatArray,
     val t: Long = 0,
@@ -49,13 +49,21 @@ class Stroke(
         get() = b ?: RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE).also { r ->
             var i = 0
             while (i < pts.size) { r.union(pts[i], pts[i + 1]); i += 3 }
-            r.inset(-width, -width); b = r
+            val m = if (style == 8 || style == 9) width * 2.4f else width
+            r.inset(-m, -m); b = r
         }
 
     fun offset(dx: Float, dy: Float) {
         var i = 0
         while (i < pts.size) { pts[i] += dx; pts[i + 1] += dy; i += 3 }
         path?.offset(dx, dy); b?.offset(dx, dy)
+    }
+
+    /** Escala el trazo (puntos y grosor) alrededor de (ox, oy). */
+    fun scale(ox: Float, oy: Float, f: Float) {
+        var i = 0
+        while (i < pts.size) { pts[i] = ox + (pts[i] - ox) * f; pts[i + 1] = oy + (pts[i + 1] - oy) * f; i += 3 }
+        width *= f; path = null; b = null
     }
 }
 
@@ -71,6 +79,7 @@ class Item(val id: Long, val kind: Int, var x: Float, var y: Float, var w: Float
     var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt(), var align: Int = 0, var bold: Boolean = false) {
     fun bounds() = RectF(x, y, x + w, y + h)
     fun offset(dx: Float, dy: Float) { x += dx; y += dy }
+    fun scale(ox: Float, oy: Float, f: Float) { x = ox + (x - ox) * f; y = oy + (y - oy) * f; w *= f; h *= f; size *= f }
 }
 
 @Serializable

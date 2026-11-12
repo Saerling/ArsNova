@@ -7,3 +7,11 @@ App de notas a mano para Android (tablet y teléfono), en la línea de Notabilit
 **Descarga:** pestaña *Releases* (cada push a `main` compila un APK firmado).
 
 **Más funciones:** baja latencia (predicción de trazo + entrada sin búfer) · vista previa del grosor al flotar el lápiz · rueda de herramientas con doble toque del lápiz (configurable, pensado para Huawei M-Pencil) · importar y anotar PDF · modo oscuro · audio ligado a los trazos (toca lo escrito y escucha ese momento) · figuras (línea, triángulo, rectángulo, círculo) al mantener el trazo · cuadros de texto e imágenes · reconocimiento de escritura en el dispositivo para buscar y convertir a texto · miniaturas de páginas · resumen y tarjetas con IA (opcional, clave propia de Claude).
+
+**Tinta:** cada lápiz tiene su carácter (bolígrafo, pluma, lápiz, pincel, monolínea, caligrafía de plumilla plana…) y lo que ves al escribir es lo que queda al levantar el lápiz. El lienzo se mantiene nítido con mucho zoom, la mano apoyada no estorba al lápiz, y un toque con dos dedos deshace (tres, rehace).
+
+**Diseño:** estética monocroma de Mochy Music (Inter, esquinas continuas, pulsación con rebote) e iconos propios. Ver `CREDITOS.md`.
+
+**Desarrollo:** `gradle testDebugUnitTest` genera imágenes de los lápices e iconos (`app/build/ink`) y capturas de las pantallas (`app/build/shots`).
+
+Licencia: GPL-3.0.

@@ -13,8 +13,8 @@ import kotlin.math.sin
 import kotlin.math.atan2
 
 /**
- * Renderizado de tinta. Igual que ScripNote (pointsToContourSVG), el bolígrafo se dibuja como un
- * contorno relleno de ancho variable: suavizado + curva de presión + normales por punto.
+ * Renderizado de tinta. Los lápices de ancho variable se dibujan como un contorno relleno que arma [Nib];
+ * rotulador, resaltador, neón, acuarela y cinta se trazan sobre la línea central.
  */
 object Ink {
     const val PAGE_W = 1404f
@@ -22,8 +22,12 @@ object Ink {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val hlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
     }
+    private val hlMul = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+    private val hlScr = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+    /** Papel oscuro bajo el trazo: el resaltador aclara en vez de multiplicar (si no, desaparece). */
+    @Volatile var darkPaper = false
+    fun isDark(paper: Int) = Color.red(paper) * 0.3f + Color.green(paper) * 0.59f + Color.blue(paper) * 0.11f < 110
     private val white = Paint().apply { color = Color.WHITE }
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     var bgDir: java.io.File? = null
@@ -32,20 +36,6 @@ object Ink {
     fun bg(name: String): Bitmap? = bgCache.get(name)
         ?: BitmapFactory.decodeFile(java.io.File(bgDir, name).path)?.also { bgCache.put(name, it) }
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFDCD6CB.toInt(); strokeWidth = 1.5f }
-
-    fun radius(width: Float, p: Float) = width * 0.5f * (0.28f + 0.72f * p.coerceIn(0f, 1f).pow(0.75f))
-
-    private fun radius(style: Int, width: Float, p0: Float, dx: Float, dy: Float): Float {
-        val p = p0.coerceIn(0f, 1f); val h = width * 0.5f
-        return when (style) {
-            1 -> h * (0.16f + 0.84f * abs(sin(atan2(dy, dx) - 0.785f))) * (0.55f + 0.45f * p)
-            7 -> h * (0.07f + 0.93f * abs(sin(atan2(dy, dx) - 0.52f)))
-            2 -> h * (0.45f + 0.55f * p)
-            3 -> h * (0.06f + 0.94f * p.pow(1.5f))
-            4 -> h
-            else -> h * (0.28f + 0.72f * p.pow(0.75f))
-        }
-    }
 
     private val grain: BitmapShader by lazy {
         val n = 96; val b = Bitmap.createBitmap(n, n, Bitmap.Config.ALPHA_8); val r = java.util.Random(7)
@@ -96,7 +86,7 @@ object Ink {
     private fun draw(c: Canvas, path: Path, pts: FloatArray, n: Int, width: Float, style: Int, color: Int) {
         if (n < 3) return
         when (style) {
-            6 -> { hlPaint.color = color; hlPaint.strokeWidth = width; c.drawPath(path, hlPaint); return }
+            6 -> { hlPaint.color = color; hlPaint.strokeWidth = width; hlPaint.xfermode = if (darkPaper) hlScr else hlMul; c.drawPath(path, hlPaint); return }
             5 -> { flat.color = color; flat.strokeWidth = width; c.drawPath(path, flat); return }
             8 -> { glow.color = color; glow.strokeWidth = width * 1.6f; glow.maskFilter = BlurMaskFilter(width * 0.9f, BlurMaskFilter.Blur.NORMAL); c.drawPath(path, glow)
                 glow.maskFilter = null; glow.strokeWidth = width * 0.7f; c.drawPath(path, glow); glow.color = 0xEEFFFFFF.toInt(); glow.strokeWidth = width * 0.28f; c.drawPath(path, glow); return }
@@ -109,14 +99,6 @@ object Ink {
         }
         fill.color = color; fill.shader = if (style == 2) grain else null
         c.drawPath(path, fill)
-        if (style == 0 || style == 2 || style == 3 || style == 4) {
-            // Relleno del núcleo: tapa los huecos donde el contorno se cruza en giros cerrados.
-            core.reset(); core.moveTo(pts[0], pts[1]); var k = 3
-            while (k < n) { core.lineTo(pts[k], pts[k + 1]); k += 3 }
-            flat.color = color; flat.shader = fill.shader; flat.strokeWidth = width * (if (style == 3) 0.18f else if (style == 4) 0.9f else 0.42f)
-            c.drawPath(core, flat); flat.shader = null
-        }
-        if (style == 1) { c.drawCircle(pts[0], pts[1], radius(1, width, pts[2], 1f, 0f), fill); c.drawCircle(pts[n - 3], pts[n - 2], radius(1, width, pts[n - 1], 1f, 0f), fill) }
         fill.shader = null
     }
 
@@ -132,40 +114,7 @@ object Ink {
             }
             path.lineTo(px, py); return path
         }
-        if (style != 1 && style != 7) return Freehand.path(pts, n, when (style) {
-            2 -> Freehand.Opt(width, 0.35f, 0.5f, 0.45f)
-            3 -> Freehand.Opt(width * 1.2f, 0.82f, 0.62f, 0.5f, taperStart = width * 3f, taperEnd = width * 5f)
-            4 -> Freehand.Opt(width, 0f, 0.5f, 0.45f)
-            else -> Freehand.Opt(width, 0.5f, 0.5f, 0.45f)
-        })
-        val xs = FloatArray(cnt) { pts[3 * it] }; val ys = FloatArray(cnt) { pts[3 * it + 1] }
-        smooth(xs); smooth(ys)
-        val rs = FloatArray(cnt) {
-            val a = max(it - 1, 0); val b = min(it + 1, cnt - 1)
-            radius(style, width, pts[3 * it + 2], xs[b] - xs[a], ys[b] - ys[a])
-        }
-        smooth(rs); smooth(rs)
-        if (cnt == 1) { path.addCircle(xs[0], ys[0], rs[0], Path.Direction.CW); return path }
-        val lx = FloatArray(cnt); val ly = FloatArray(cnt); val rx = FloatArray(cnt); val ry = FloatArray(cnt)
-        for (i in 0 until cnt) {
-            val a = max(i - 1, 0); val b = min(i + 1, cnt - 1)
-            var dx = xs[b] - xs[a]; var dy = ys[b] - ys[a]
-            val len = hypot(dx, dy)
-            if (len < 1e-4f) { dx = 1f; dy = 0f } else { dx /= len; dy /= len }
-            lx[i] = xs[i] - dy * rs[i]; ly[i] = ys[i] + dx * rs[i]
-            rx[i] = xs[i] + dy * rs[i]; ry[i] = ys[i] - dx * rs[i]
-        }
-        path.moveTo(lx[0], ly[0])
-        for (i in 1 until cnt) path.lineTo(lx[i], ly[i])
-        for (i in cnt - 1 downTo 0) path.lineTo(rx[i], ry[i])
-        path.close()
-        return path
-    }
-
-    private fun smooth(a: FloatArray) {
-        if (a.size < 3) return
-        var prev = a[0]
-        for (i in 1 until a.size - 1) { val cur = a[i]; a[i] = (prev + 2 * cur + a[i + 1]) * 0.25f; prev = cur }
+        return Nib.path(pts, n, width, style)
     }
 
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1.5f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
@@ -173,7 +122,7 @@ object Ink {
     fun drawPaper(c: Canvas, p: Page) = drawPaper(c, p.template, p.bg, p.paper, p.spacing)
     fun drawPaper(c: Canvas, t: Template, bgName: String? = null, paper: Int = -1, spacing: Float = 0f) {
         white.color = paper; c.drawRect(0f, 0f, PAGE_W, PAGE_H, white)
-        val darkP = Color.red(paper) * 0.3f + Color.green(paper) * 0.59f + Color.blue(paper) * 0.11f < 110
+        val darkP = isDark(paper); darkPaper = darkP
         rule.color = if (darkP) 0x40FFFFFF else 0xFFDCD6CB.toInt(); dash.color = rule.color
         bgName?.let { bg(it) }?.let { b ->
             val s = minOf(PAGE_W / b.width, PAGE_H / b.height); val w = b.width * s; val h = b.height * s

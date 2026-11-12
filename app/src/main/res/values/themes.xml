@@ -2,6 +2,6 @@
     <style name="Theme.ArsNova" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/paper</item>
     </style>
-    <color name="paper">#F6F3EC</color>
-    <color name="brand">#D9481F</color>
+    <color name="paper">#F6F6F8</color>
+    <color name="brand">#0E0E10</color>
 </resources>

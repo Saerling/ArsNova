@@ -44,8 +44,7 @@ fun PencilArc(at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, o
         val cur = slots.getOrNull(active)
         Surface(Modifier.offset { IntOffset((cx - rp).roundToInt(), (cy - rp).roundToInt()) }.size(disc)
             .graphicsLayer { scaleX = 0.85f + 0.15f * appear.value; scaleY = scaleX; alpha = appear.value }.pointerInput(Unit) { detectTapGestures { } },
-            shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), shadowElevation = 18.dp,
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() < 0.3f) 0.1f else 0.7f))) {
+            shape = CircleShape, color = Ars.Glass, shadowElevation = 18.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
             Box(Modifier.fillMaxSize()) {
                 val n = slots.size
                 slots.forEachIndexed { i, s ->
@@ -86,7 +85,7 @@ fun ColorPopover(initial: Int, swatches: List<Int>, onPick: (Int) -> Unit, onSav
     var op by remember { mutableFloatStateOf(((initial ushr 24) / 255f).let { if (it == 0f) 1f else it }) }
     val cur = (rgb and 0x00FFFFFF) or ((op * 255).toInt() shl 24)
     fun set(c: Int) { rgb = c or 0xFF000000.toInt(); onPick((rgb and 0x00FFFFFF) or ((op * 255).toInt() shl 24)) }
-    Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 16.dp, modifier = Modifier.width(340.dp).padding(bottom = 10.dp)) {
+    Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.width(340.dp).padding(bottom = 10.dp)) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Colores", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -152,7 +151,7 @@ val TemplateChoices = listOf(Template.BLANK to "Ninguna", Template.LINED_N to "L
 @Composable
 fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)).pointerInput(Unit) { detectTapGestures { onCancel() } }, contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(26.dp), shadowElevation = 20.dp, modifier = Modifier.widthIn(max = 460.dp).padding(20.dp).pointerInput(Unit) { detectTapGestures { } }) {
+        Surface(shape = squircle(30), shadowElevation = 20.dp, color = Ars.Sheet, modifier = Modifier.widthIn(max = 460.dp).padding(20.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.fillMaxWidth()) {
                     TextButton(onCancel, Modifier.align(Alignment.CenterStart)) { Text("Cancelar") }
@@ -166,7 +165,7 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
                         val bmp = remember(t) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, t), 0.07f).asImageBitmap() }
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(88.dp).clickable { onPick(t) }) {
                             androidx.compose.foundation.Image(bmp, l, Modifier.size(84.dp, 64.dp).clip(RoundedCornerShape(8.dp))
-                                .border(if (sel) 3.dp else 1.dp, if (sel) Brand else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                                .border(if (sel) 2.5.dp else 1.dp, if (sel) Ars.Text else Ars.Line, RoundedCornerShape(8.dp)),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                             Text(l, style = MaterialTheme.typography.labelSmall, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
                         }
@@ -182,7 +181,7 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
 fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin: (Boolean) -> Unit, onFinger: (Boolean) -> Unit, onBeautify: (Boolean) -> Unit,
                 onLines: () -> Unit, onPencil: () -> Unit, anchor: Alignment = Alignment.BottomCenter, pad: PaddingValues = PaddingValues(bottom = 96.dp), onDismiss: () -> Unit) {
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
-        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 16.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
+        Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.padding(vertical = 6.dp)) {
                 @Composable fun T(l: String, v: Boolean, on: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().clickable { on(!v) }.padding(18.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(l, Modifier.weight(1f)); Switch(v, on) }

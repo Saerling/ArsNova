@@ -59,7 +59,14 @@ class InkView(context: Context) : View(context) {
     var lastPenY = -1f; private set
     var hoverX = -1f; private set
     var hoverY = -1f; private set
-    private val predictor = MotionEventPredictor.newInstance(this)
+    /** Predicción de trazo (menos latencia). Se crea al primer toque; si el dispositivo no la soporta, se escribe sin ella. */
+    private val predictor by lazy { runCatching { MotionEventPredictor.newInstance(this) }.getOrNull() }
+    /** Toque con dos dedos = deshacer, con tres = rehacer. */
+    var tapGestures = true
+    private var lastStylus = -10_000L; private var navTravel = 0f; private var maxPointers = 1
+    private var rawX = 0f; private var rawY = 0f; private var rawP = 0f
+    private var fingerP = 0.5f; private var ptT = 0L; private var ptX = 0f; private var ptY = 0f
+    private var animating = false
     private var predN = 0
 
     private sealed class Op {
@@ -69,7 +76,8 @@ class InkView(context: Context) : View(context) {
         class Move(val s: List<Stroke>, val its: List<Item>, val dx: Float, val dy: Float) : Op()
         class AddItem(val it: Item) : Op()
         class EditText(val it: Item, val old: String, val new: String) : Op()
-        class Resize(val it: Item, val ow: Float, val oh: Float, val nw: Float, val nh: Float) : Op()
+        class Scale(val s: List<Stroke>, val its: List<Item>, val ox: Float, val oy: Float, val f: Float) : Op()
+        class Paste(val s: List<Stroke>, val its: List<Item>) : Op()
         class Replace(val removed: List<Pair<Int, Stroke>>, val added: List<Stroke>) : Op()
         class Recolor(val s: List<Stroke>, val old: IntArray, val new: IntArray) : Op()
     }
@@ -84,14 +92,20 @@ class InkView(context: Context) : View(context) {
     /** Escribir true invalida las páginas cacheadas (se re-renderizan solo las visibles). */
     private var cacheDirty: Boolean
         get() = false
-        set(v) { if (v) for (pc in pcache.values) pc.valid = false }
-    private fun dropCache() { pcache.values.forEach { it.bmp.recycle() }; pcache.clear() }
+        set(v) { if (v) { for (pc in pcache.values) pc.valid = false; vpValid = false } }
+    private fun dropCache() { pcache.values.forEach { it.bmp.recycle() }; pcache.clear(); vp?.recycle(); vp = null; vpValid = false }
+    /** Con mucho zoom las páginas cacheadas se verían borrosas: lo visible se dibuja directo a resolución de pantalla. */
+    private var vp: Bitmap? = null; private var vpValid = false; private var vpScale = 0f; private var vpTx = 0f; private var vpTy = 0f
+    private val maxRes = 2400f / Ink.PAGE_W
+    private fun vpOk() = vpValid && vp != null && vpScale == scale && vpTx == tx && vpTy == ty
+    private val vis = RectF()
     private val scroller = android.widget.OverScroller(context)
     private var vt: android.view.VelocityTracker? = null
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x14000000 }
-    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFD9481F.toInt(); strokeWidth = 2f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
+    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF3478F6.toInt(); strokeWidth = 2f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val knob = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
 
     private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV, TAP, LASER }
@@ -104,7 +118,7 @@ class InkView(context: Context) : View(context) {
     private var ex = -1f; private var ey = -1f
     private val lasso = Path()
     private val sel = ArrayList<Stroke>(); private val selIt = ArrayList<Item>(); private val selBounds = RectF()
-    private var resizing = false
+    private var resizing = false; private var selF = 1f
     var onTextEdit: (Item, Boolean) -> Unit = { _, _ -> }
     private var selDx = 0f; private var selDy = 0f; private var lastX = 0f; private var lastY = 0f
     private var lfx = 0f; private var lfy = 0f; private var lspan = 0f
@@ -124,8 +138,33 @@ class InkView(context: Context) : View(context) {
 
     // ---------- API ----------
     fun canUndo() = page != null && undos().isNotEmpty()
-    fun undo() { val op = undos().removeLastOrNull() ?: return; revert(op); redos().addLast(op); after() }
-    fun redo() { val op = redos().removeLastOrNull() ?: return; apply(op); undos().addLast(op); after() }
+    fun undo() { val op = undos().removeLastOrNull() ?: return; val d = dirtyOf(op); revert(op); redos().addLast(op); after(op, d) }
+    fun redo() { val op = redos().removeLastOrNull() ?: return; val d = dirtyOf(op); apply(op); undos().addLast(op); after(op, d) }
+
+    /** Zona de la página que cambia al aplicar o revertir [op] (null = hay que repintar todo). */
+    private fun dirtyOf(op: Op): RectF? {
+        val r = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
+        when (op) {
+            is Op.Add -> r.union(op.s.bounds)
+            is Op.Remove -> { if (op.its.isNotEmpty()) return null; op.items.forEach { r.union(it.second.bounds) } }
+            is Op.Replace -> { op.removed.forEach { r.union(it.second.bounds) }; op.added.forEach { r.union(it.bounds) } }
+            is Op.Recolor -> op.s.forEach { r.union(it.bounds) }
+            is Op.Move -> { if (op.its.isNotEmpty()) return null; op.s.forEach { r.union(it.bounds) }
+                val a = RectF(r); a.offset(op.dx, op.dy); val b = RectF(r); b.offset(-op.dx, -op.dy); r.union(a); r.union(b) }
+            else -> return null
+        }
+        return if (r.left > r.right) null else r
+    }
+
+    /** Copia la selección un poco desplazada y deja seleccionada la copia. */
+    fun duplicateSelection() {
+        val p = page ?: return; if (!hasSelection()) return
+        val ns = sel.mapIndexed { i, s -> Stroke(System.nanoTime() + i, s.color, s.width, s.hl, s.pts.copyOf(), s.t, s.style).also { it.offset(36f, 36f) } }
+        val ni = selIt.mapIndexed { i, t -> Item(System.nanoTime() + 1000 + i, t.kind, t.x + 36f, t.y + 36f, t.w, t.h, t.text, t.file, t.size, t.color, t.align, t.bold) }
+        val op = Op.Paste(ns, ni); apply(op); push(op)
+        sel.clear(); selIt.clear(); sel += ns; selIt += ni; selBounds.offset(36f, 36f)
+        cacheDirty = true; invalidate(); notifyState(); onChange()
+    }
     fun hasSelection() = sel.isNotEmpty() || selIt.isNotEmpty()
 
     fun deleteSelection() {
@@ -133,7 +172,7 @@ class InkView(context: Context) : View(context) {
         val items = ArrayList<Pair<Int, Stroke>>(); val its = ArrayList<Pair<Int, Item>>()
         for (s in sel) { val i = p.strokes.indexOf(s); if (i >= 0) { p.strokes.removeAt(i); items += i to s } }
         for (s in selIt) { val i = p.items.indexOf(s); if (i >= 0) { p.items.removeAt(i); its += i to s } }
-        push(Op.Remove(items, its)); sel.clear(); selIt.clear(); after()
+        push(Op.Remove(items, its)); after()
     }
 
     fun recolorSelection(c: Int) {
@@ -193,7 +232,8 @@ class InkView(context: Context) : View(context) {
             is Op.AddItem -> p.items.add(op.it)
             is Op.Replace -> { op.removed.forEach { p.strokes.remove(it.second) }; p.strokes.addAll(op.added) }
             is Op.EditText -> op.it.text = op.new
-            is Op.Resize -> { op.it.w = op.nw; op.it.h = op.nh }
+            is Op.Scale -> { op.s.forEach { it.scale(op.ox, op.oy, op.f) }; op.its.forEach { it.scale(op.ox, op.oy, op.f) } }
+            is Op.Paste -> { p.strokes.addAll(op.s); p.items.addAll(op.its) }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.new[i] }
         }
     }
@@ -207,12 +247,18 @@ class InkView(context: Context) : View(context) {
             is Op.AddItem -> p.items.remove(op.it)
             is Op.Replace -> { p.strokes.removeAll(op.added.toSet()); op.removed.asReversed().forEach { (i, s) -> p.strokes.add(i.coerceAtMost(p.strokes.size), s) } }
             is Op.EditText -> op.it.text = op.old
-            is Op.Resize -> { op.it.w = op.ow; op.it.h = op.oh }
+            is Op.Scale -> { op.s.forEach { it.scale(op.ox, op.oy, 1f / op.f) }; op.its.forEach { it.scale(op.ox, op.oy, 1f / op.f) } }
+            is Op.Paste -> { p.strokes.removeAll(op.s.toSet()); p.items.removeAll(op.its.toSet()) }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.old[i] }
         }
     }
     private fun push(op: Op) { if (op.pg == null) op.pg = page; val u = undos(); u.addLast(op); if (u.size > 300) u.removeFirst(); redos().clear(); notifyState() }
-    private fun after() { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState(); onChange() }
+    private fun after(op: Op? = null, dirty: RectF? = null) {
+        val hadSel = hasSelection(); sel.clear(); selIt.clear()
+        val pg = op?.pg
+        if (!hadSel && dirty != null && pg != null) repaint(pg, dirty) else cacheDirty = true
+        invalidate(); notifyState(); onChange()
+    }
     private fun notifyState() { if (page != null) onState(undos().isNotEmpty(), redos().isNotEmpty(), hasSelection()) }
     private fun clearSelection() { if (hasSelection()) { sel.clear(); selIt.clear(); cacheDirty = true; invalidate(); notifyState() } }
 
@@ -249,13 +295,13 @@ class InkView(context: Context) : View(context) {
     fun scrollToPage(i: Int) {
         val target = topInset + dp(16f) - top(i) * scale; val from = ty
         android.animation.ValueAnimator.ofFloat(0f, 1f).apply { duration = 380; interpolator = android.view.animation.DecelerateInterpolator(2f)
-            addUpdateListener { ty = from + (target - from) * (it.animatedValue as Float); clamp(); updateMatrix(); invalidate() }; start() }
+            addUpdateListener { ty = from + (target - from) * (it.animatedValue as Float); animating = it.animatedFraction < 1f; clamp(); updateMatrix(); invalidate() }; start() }
     }
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) { tx = scroller.currX.toFloat(); ty = scroller.currY.toFloat(); clamp(); updateMatrix(); postInvalidateOnAnimation() }
     }
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { fitted = false }
-    private fun targetRes() = (scale.coerceIn(0.4f, 2400f / Ink.PAGE_W) * 8).toInt() / 8f
+    private fun targetRes() = (scale.coerceIn(0.4f, maxRes) * 8).toInt() / 8f
     private fun pageBitmap(p: Page, res: Float): Bitmap {
         var pc = pcache[p.id]
         if (pc == null || (res > 0 && pc.res != res)) {
@@ -263,15 +309,47 @@ class InkView(context: Context) : View(context) {
             pc?.bmp?.recycle()
             pc = PC(Bitmap.createBitmap((Ink.PAGE_W * r).toInt(), (Ink.PAGE_H * r).toInt(), Bitmap.Config.ARGB_8888), r); pcache[p.id] = pc
         }
-        if (!pc.valid) {
-            val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); val on = p === page
-            Ink.drawPaper(cc, p)
-            for (it in p.items) if (!on || it !in selIt) Ink.drawItem(cc, it)
-            val selSet = if (on) sel.toHashSet() else emptySet()
-            for (s in p.strokes) if (s !in selSet) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
-            pc.valid = true
-        }
+        if (!pc.valid) { val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); paintPage(cc, p, null); pc.valid = true }
         return pc.bmp
+    }
+
+    /** Papel, elementos y trazos de [p] (salvo lo seleccionado). Con [only] se saltan los trazos que no la tocan. */
+    private fun paintPage(cc: Canvas, p: Page, only: RectF?) {
+        val on = p === page
+        Ink.drawPaper(cc, p)
+        for (it in p.items) if (!on || it !in selIt) Ink.drawItem(cc, it)
+        val selSet = if (on && sel.isNotEmpty()) sel.toHashSet() else emptySet()
+        for (s in p.strokes) if (s !in selSet && (only == null || RectF.intersects(only, s.bounds))) Ink.drawStroke(cc, s, replayTime >= 0 && s.t > replayTime)
+    }
+
+    /** Repinta solo una zona de la página en las cachés (borrar, deshacer…): no se redibuja toda la hoja. */
+    private fun repaint(p: Page, dirty: RectF) {
+        val r = RectF(dirty); r.inset(-3f, -3f)
+        pcache[p.id]?.takeIf { it.valid }?.let { pc -> val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); cc.clipRect(r); paintPage(cc, p, r) }
+        val i = pages.indexOf(p)
+        if (vpOk() && i >= 0) { val cc = Canvas(vp!!); cc.concat(matrix); cc.translate(0f, top(i)); cc.clipRect(0f, 0f, Ink.PAGE_W, Ink.PAGE_H); cc.clipRect(r); paintPage(cc, p, r) }
+        else vpValid = false
+        invalidate()
+    }
+
+    private fun drawViewport(c: Canvas, first: Int, last: Int) {
+        var b = vp
+        if (b == null || b.width != width || b.height != height) { b?.recycle(); b = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); vp = b; vpValid = false }
+        if (!vpOk()) {
+            val cc = Canvas(b); cc.drawColor(desk)
+            for (i in first..last) {
+                cc.save(); cc.concat(matrix); cc.translate(0f, top(i)); pageShadow(cc)
+                cc.clipRect(0f, 0f, Ink.PAGE_W, Ink.PAGE_H)
+                vis.set(0f, 0f, width.toFloat(), height.toFloat()); inv.mapRect(vis); vis.offset(0f, -top(i))
+                paintPage(cc, pages[i], vis); cc.restore()
+            }
+            vpValid = true; vpScale = scale; vpTx = tx; vpTy = ty
+        }
+        c.drawBitmap(b, 0f, 0f, null)
+    }
+    private fun pageShadow(c: Canvas) {
+        c.drawRoundRect(-3f, 3f, Ink.PAGE_W + 3f, Ink.PAGE_H + 9f, 10f, 10f, shadow)
+        c.drawRoundRect(-1f, 1f, Ink.PAGE_W + 1f, Ink.PAGE_H + 4f, 6f, 6f, shadow)
     }
 
     // ---------- draw ----------
@@ -279,24 +357,30 @@ class InkView(context: Context) : View(context) {
         if (pages.isEmpty() || width == 0 || height == 0) return
         if (!fitted) doFit()
         c.drawColor(desk)
-        val res = if (mode == Mode.NAV || !scroller.isFinished) -1f else targetRes()
+        val settled = mode != Mode.NAV && scroller.isFinished && !animating
+        val res = if (settled) targetRes() else -1f
         val step = (Ink.PAGE_H + gap) * scale
         val first = (-ty / step).toInt().coerceIn(0, pages.size - 1); val last = ((height - ty) / step).toInt().coerceIn(first, pages.size - 1)
-        for (i in first..last) {
+        if (settled && scale > maxRes * 1.12f) drawViewport(c, first, last)
+        else for (i in first..last) {
             val b = pageBitmap(pages[i], res)
-            c.save(); c.concat(matrix); c.translate(0f, top(i))
-            c.drawRoundRect(-3f, 3f, Ink.PAGE_W + 3f, Ink.PAGE_H + 9f, 10f, 10f, shadow)
-            c.drawRoundRect(-1f, 1f, Ink.PAGE_W + 1f, Ink.PAGE_H + 4f, 6f, 6f, shadow)
+            c.save(); c.concat(matrix); c.translate(0f, top(i)); pageShadow(c)
             c.scale(Ink.PAGE_W / b.width, Ink.PAGE_H / b.height); c.drawBitmap(b, 0f, 0f, bmpPaint); c.restore()
         }
+        Ink.darkPaper = Ink.isDark(page?.paper ?: -1)
         if (pcache.size > last - first + 3) { val keep = (maxOf(0, first - 1)..minOf(pages.size - 1, last + 1)).map { pages[it].id }.toHashSet()
             pcache.keys.filter { it !in keep }.forEach { pcache.remove(it)?.bmp?.recycle() } }
         val center = ((height / 2f - ty) / step).toInt().coerceIn(0, pages.size - 1)
         if (center != reported) { reported = center; post { onPage(center) } }
         c.save(); c.concat(matrix); c.translate(0f, pageOy)
         if (hasSelection()) {
-            c.save(); c.translate(selDx, selDy); selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
-            dash.strokeWidth = 2f / scale; c.drawRect(selBounds, dash); c.restore()
+            c.save(); if (resizing) c.scale(selF, selF, selBounds.left, selBounds.top) else c.translate(selDx, selDy)
+            selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
+            val k = if (resizing) selF else 1f
+            dash.strokeWidth = 2f / scale / k; c.drawRect(selBounds, dash)
+            knob.style = Paint.Style.FILL; knob.color = Color.WHITE; c.drawCircle(selBounds.right, selBounds.bottom, dp(7f) / scale / k, knob)
+            knob.style = Paint.Style.STROKE; knob.color = dash.color; knob.strokeWidth = dp(2f) / scale / k; c.drawCircle(selBounds.right, selBounds.bottom, dp(7f) / scale / k, knob)
+            c.restore()
         }
         if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
@@ -326,20 +410,25 @@ class InkView(context: Context) : View(context) {
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         page ?: return false
-        predictor.record(e)
+        predictor?.record(e)
         if (e.actionMasked == MotionEvent.ACTION_DOWN) { scroller.forceFinished(true); vt?.recycle(); vt = android.view.VelocityTracker.obtain() }
         vt?.addMovement(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 requestUnbufferedDispatch(e); hoverX = -1f
                 parent?.requestDisallowInterceptTouchEvent(true)
-                isStylus = stylusAt(e, 0)
-                if (isStylus || !stylusOnly) begin(e, 0) else { mode = Mode.NAV; navReset(e, -1) }
+                isStylus = stylusAt(e, 0); maxPointers = 1; navTravel = 0f
+                if (isStylus) lastStylus = e.eventTime
+                // con el lápiz cerca (o recién usado) un dedo es casi seguro la palma: navega, no dibuja
+                if (isStylus || (!stylusOnly && e.eventTime - lastStylus > 1200)) begin(e, 0) else { mode = Mode.NAV; navReset(e, -1) }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                val i = e.actionIndex
+                val i = e.actionIndex; maxPointers = maxOf(maxPointers, e.pointerCount)
                 when {
-                    mode == Mode.NAV && stylusOnly && stylusAt(e, i) -> { endNav(); isStylus = true; begin(e, i) }
+                    // llega el lápiz con la mano ya apoyada: el lápiz siempre manda
+                    stylusAt(e, i) -> if (!(isStylus && mode != Mode.NAV && mode != Mode.NONE)) {
+                        if (mode == Mode.NAV) endNav(false) else cancelDraw()
+                        isStylus = true; lastStylus = e.eventTime; begin(e, i) }
                     mode == Mode.NAV -> navReset(e, -1)
                     !isStylus -> { cancelDraw(); mode = Mode.NAV; navReset(e, -1) }
                 }
@@ -349,8 +438,16 @@ class InkView(context: Context) : View(context) {
                 if (mode == Mode.NAV) navReset(e, e.actionIndex)
                 else if (e.getPointerId(e.actionIndex) == pid) { endDraw(); mode = Mode.NONE }
             }
-            MotionEvent.ACTION_UP -> { if (mode == Mode.NAV) endNav() else if (mode != Mode.NONE) endDraw(); mode = Mode.NONE; invalidate() }
-            MotionEvent.ACTION_CANCEL -> { if (mode == Mode.NAV) endNav() else cancelDraw(); mode = Mode.NONE }
+            MotionEvent.ACTION_UP -> {
+                if (mode == Mode.NAV) {
+                    val tap = tapGestures && navTravel < dp(6f) && e.eventTime - e.downTime < 280 && e.eventTime - lastStylus > 600
+                    endNav(!tap)
+                    if (tap && maxPointers == 2 && canUndo()) { undo(); performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                    else if (tap && maxPointers == 3 && redos().isNotEmpty()) { redo(); performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+                } else if (mode != Mode.NONE) endDraw()
+                mode = Mode.NONE; invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> { if (mode == Mode.NAV) endNav(false) else cancelDraw(); mode = Mode.NONE }
         }
         return true
     }
@@ -358,6 +455,7 @@ class InkView(context: Context) : View(context) {
     private fun begin(e: MotionEvent, i: Int) {
         pid = e.getPointerId(i); scroller.forceFinished(true); activateAt(e.getY(i))
         if (isStylus) { lastPenX = e.getX(i); lastPenY = e.getY(i) }
+        fingerP = 0.5f; ptT = e.eventTime; ptX = e.getX(i); ptY = e.getY(i)
         val eraserBtn = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER || (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
         val t = if (eraserBtn) Tool.ERASER else tool
         val sx = e.getX(i); val sy = e.getY(i); val q = toPage(sx, sy); val x = q[0]; val y = q[1]
@@ -365,30 +463,31 @@ class InkView(context: Context) : View(context) {
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
-                add(x, y, pressure(e.getPressure(i))); sigX = sx; sigY = sy; postSnap(); onInking(true)
+                rawX = x; rawY = y; rawP = pressure(e.getPressure(i)); add(x, y, rawP); sigX = sx; sigY = sy; postSnap(); onInking(true)
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
             Tool.TAPE -> { val hitT = hitStroke(x, y)?.takeIf { it.style == 11 }
-                if (hitT != null) { hitT.hid = !hitT.hid; pcache[page!!.id]?.valid = false; mode = Mode.NONE; onChange() }
+                if (hitT != null) { hitT.hid = !hitT.hid; repaint(page!!, hitT.bounds); mode = Mode.NONE; onChange() }
                 else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
             Tool.LASER -> { mode = Mode.LASER; laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f)) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
             Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
-                mode = Mode.MOVE_SEL; lastX = x; lastY = y
-                resizing = sel.isEmpty() && selIt.size == 1 && selIt[0].kind == 1 && hypot(x - selBounds.right, y - selBounds.bottom) < 40f / scale }
+                mode = Mode.MOVE_SEL; lastX = x; lastY = y; selF = 1f
+                resizing = hypot(x - selBounds.right, y - selBounds.bottom) < dp(26f) / scale }
                 else { clearSelection(); mode = Mode.LASSO; lasso.reset(); lasso.moveTo(x, y) }
         }
         invalidate()
     }
 
-    private fun pressure(p: Float) = if (isStylus) p else 0.55f
+    /** El lápiz da presión real; con el dedo se simula con la velocidad (rápido = fino). */
+    private fun pressure(p: Float) = if (isStylus) p else fingerP
 
     private fun moveDraw(e: MotionEvent) {
         val i = e.findPointerIndex(pid); if (i < 0) return
-        for (h in 0 until e.historySize) point(e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalPressure(i, h))
-        point(e.getX(i), e.getY(i), e.getPressure(i))
+        for (h in 0 until e.historySize) point(e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalPressure(i, h), e.getHistoricalEventTime(h))
+        point(e.getX(i), e.getY(i), e.getPressure(i), e.eventTime)
         predN = 0
-        if (mode == Mode.DRAW && !snapped && curN >= 3) predictor.predict()?.let { pe ->
+        if (mode == Mode.DRAW && !snapped && curN >= 3) predictor?.predict()?.let { pe ->
             val pi = pe.findPointerIndex(pid).coerceAtLeast(0)
             val q = toPage(pe.getX(pi), pe.getY(pi))
             if (curN + 3 > cur.size) cur = cur.copyOf(cur.size * 2)
@@ -398,15 +497,21 @@ class InkView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun point(sx: Float, sy: Float, pr: Float) {
-        if (isStylus) { lastPenX = sx; lastPenY = sy }
+    private fun point(sx: Float, sy: Float, pr: Float, time: Long) {
+        if (isStylus) { lastPenX = sx; lastPenY = sy; lastStylus = time }
+        else if (time > ptT) {
+            val v = hypot(sx - ptX, sy - ptY) / resources.displayMetrics.density / (time - ptT)
+            fingerP += ((0.85f - 0.3f * v).coerceIn(0.28f, 0.85f) - fingerP) * 0.25f
+        }
+        ptT = time; ptX = sx; ptY = sy
         val q = toPage(sx, sy); val x = q[0]; val y = q[1]
         when (mode) {
             Mode.DRAW -> {
                 if (curStyle == 11) { curN = 3; add(x, y, 0.5f); return }
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
-                if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) return
+                rawX = x; rawY = y; rawP = pressure(pr)
+                if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
                 val k = 1f - stabilize * 0.88f
                 add(cur[curN - 3] + (x - cur[curN - 3]) * k, cur[curN - 2] + (y - cur[curN - 2]) * k, pressure(pr))
             }
@@ -414,7 +519,8 @@ class InkView(context: Context) : View(context) {
             Mode.LASER -> laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f))
             Mode.LASSO -> lasso.lineTo(x, y)
             Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
-            Mode.MOVE_SEL -> { selDx += x - lastX; selDy += y - lastY; lastX = x; lastY = y }
+            Mode.MOVE_SEL -> if (resizing) selF = (hypot(x - selBounds.left, y - selBounds.top) / hypot(selBounds.width(), selBounds.height()).coerceAtLeast(1f)).coerceIn(0.15f, 8f)
+                else { selDx += x - lastX; selDy += y - lastY; lastX = x; lastY = y }
             else -> {}
         }
     }
@@ -435,7 +541,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun eraseAt(x: Float, y: Float) {
-        val p = page!!; val r = eraserRadius / scale; var hit = false
+        val p = page!!; val r = eraserRadius / scale; var hit = false; val dirty = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
         for (idx in p.strokes.indices.reversed()) {
             val s = p.strokes[idx]; val b = s.bounds
             if (x < b.left - r || x > b.right + r || y < b.top - r || y > b.bottom + r) continue
@@ -448,16 +554,16 @@ class InkView(context: Context) : View(context) {
                 var k = 0
                 while (k < keep.size) { if (!keep[k]) { k++; continue }; val st = k; while (k < keep.size && keep[k]) k++
                     if (k - st >= 2) { val np = Stroke(System.nanoTime() + k, s.color, s.width, s.hl, a.copyOfRange(st * 3, k * 3), s.t, s.style); p.strokes.add(np); pieces += np } }
-                hit = true; continue
+                hit = true; dirty.union(b); continue
             }
             var j = 0
             while (j < a.size) {
                 val dx = a[j] - x; val dy = a[j + 1] - y
-                if (dx * dx + dy * dy <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; break }
+                if (dx * dx + dy * dy <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; dirty.union(b); break }
                 j += 3
             }
         }
-        if (hit) pcache[p.id]?.valid = false
+        if (hit) repaint(p, dirty)
         invalidate()
     }
 
@@ -466,9 +572,13 @@ class InkView(context: Context) : View(context) {
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
+                // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
+                if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
                 val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
+                Ink.darkPaper = Ink.isDark(p.paper)
                 pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
+                if (vpOk()) { val cc = Canvas(vp!!); cc.concat(matrix); cc.translate(0f, pageOy); cc.clipRect(0f, 0f, Ink.PAGE_W, Ink.PAGE_H); Ink.drawStroke(cc, s) } else vpValid = false
                 if (p === pages.lastOrNull()) onNeedPage()
                 curN = 0; onChange()
             }
@@ -478,12 +588,20 @@ class InkView(context: Context) : View(context) {
                 lasso.close()
                 val rg = Region().apply { setPath(lasso, Region(-20000, -20000, 40000, 40000)) }
                 selBounds.setEmpty()
-                for (s in p.strokes) {
-                    var inside = 0; var tot = 0; var j = 0
-                    while (j < s.pts.size) { tot++; if (rg.contains(s.pts[j].toInt(), s.pts[j + 1].toInt())) inside++; j += 3 }
-                    if (tot > 0 && inside * 2 >= tot) { sel += s; selBounds.union(s.bounds) }
+                // un toque con el lazo selecciona el trazo (o la imagen o el texto) que hay debajo
+                val lb = RectF(); lasso.computeBounds(lb, true)
+                if (lb.width() * scale < dp(8f) && lb.height() * scale < dp(8f)) {
+                    val hit = hitStroke(lb.centerX(), lb.centerY())
+                    if (hit != null) { sel += hit; selBounds.union(hit.bounds) }
+                    else p.items.lastOrNull { it.bounds().contains(lb.centerX(), lb.centerY()) }?.let { selIt += it; selBounds.union(it.bounds()) }
+                } else {
+                    for (s in p.strokes) {
+                        var inside = 0; var tot = 0; var j = 0
+                        while (j < s.pts.size) { tot++; if (rg.contains(s.pts[j].toInt(), s.pts[j + 1].toInt())) inside++; j += 3 }
+                        if (tot > 0 && inside * 2 >= tot) { sel += s; selBounds.union(s.bounds) }
+                    }
+                    for (it in p.items) { val b = it.bounds(); if (rg.contains(b.centerX().toInt(), b.centerY().toInt())) { selIt += it; selBounds.union(b) } }
                 }
-                for (it in p.items) { val b = it.bounds(); if (rg.contains(b.centerX().toInt(), b.centerY().toInt())) { selIt += it; selBounds.union(b) } }
                 lasso.reset(); cacheDirty = true; notifyState()
             }
             Mode.TAP -> if (tool == Tool.TEXT && !tapMode) {
@@ -491,9 +609,12 @@ class InkView(context: Context) : View(context) {
                 if (hit != null) onTextEdit(hit, false) else onTextEdit(Item(System.nanoTime(), 0, lastX, lastY, (Ink.PAGE_W - lastX - 60f).coerceAtLeast(240f), color = color), true)
             } else hitStroke(lastX, lastY)?.let(onStrokeTap)
             Mode.MOVE_SEL -> if (resizing) {
-                val it = selIt[0]; val ow = it.w; val oh = it.h; val nw = (ow + selDx).coerceAtLeast(60f); val nh = oh * nw / ow
-                val op = Op.Resize(it, ow, oh, nw, nh); apply(op); push(op); selDx = 0f; selDy = 0f; resizing = false
-                selBounds.set(it.bounds()); cacheDirty = true; onChange()
+                resizing = false
+                if (kotlin.math.abs(selF - 1f) > 0.01f) {
+                    val op = Op.Scale(ArrayList(sel), ArrayList(selIt), selBounds.left, selBounds.top, selF); apply(op); undos().addLast(op.also { it.pg = page }); redos().clear()
+                    selBounds.set(selBounds.left, selBounds.top, selBounds.left + selBounds.width() * selF, selBounds.top + selBounds.height() * selF); notifyState(); onChange()
+                }
+                selF = 1f
             } else if (selDx != 0f || selDy != 0f) {
                 val op = Op.Move(ArrayList(sel), ArrayList(selIt), selDx, selDy); apply(op); undos().addLast(op); redos().clear()
                 selBounds.offset(selDx, selDy); selDx = 0f; selDy = 0f; notifyState(); onChange()
@@ -516,14 +637,14 @@ class InkView(context: Context) : View(context) {
     private fun cancelDraw() {
         removeCallbacks(snap); onInking(false)
         if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
-        curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; ex = -1f; invalidate()
+        curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; ex = -1f; invalidate()
     }
 
     // ---------- hover / botones del lápiz ----------
     override fun onHoverEvent(e: MotionEvent): Boolean {
         if (!stylusAt(e, 0)) return super.onHoverEvent(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hoverX = e.x; hoverY = e.y; lastPenX = e.x; lastPenY = e.y }
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> { hoverX = e.x; hoverY = e.y; lastPenX = e.x; lastPenY = e.y; lastStylus = e.eventTime }
             MotionEvent.ACTION_HOVER_EXIT -> hoverX = -1f
         }
         invalidate(); return true
@@ -550,6 +671,13 @@ class InkView(context: Context) : View(context) {
         val n = e.pointerCount; var sx = 0f; var sy = 0f
         for (i in 0 until n) { sx += e.getX(i); sy += e.getY(i) }
         val fx = sx / n; val fy = sy / n
+        if (navTravel < dp(6f)) {
+            // umbral: un toque (o la palma apoyada) no mueve la hoja
+            var sp = 0f; if (n >= 2) { for (i in 0 until n) sp += hypot(e.getX(i) - fx, e.getY(i) - fy); sp /= n }
+            navTravel = maxOf(navTravel, kotlin.math.abs(fx - lfx) + kotlin.math.abs(fy - lfy) + (if (n >= 2 && lspan > 0f) kotlin.math.abs(sp - lspan) else 0f))
+            if (navTravel >= dp(6f)) navReset(e, -1)
+            return
+        }
         tx += fx - lfx; ty += fy - lfy
         if (n >= 2) {
             var d = 0f; for (i in 0 until n) d += hypot(e.getX(i) - fx, e.getY(i) - fy); val span = d / n
@@ -561,8 +689,8 @@ class InkView(context: Context) : View(context) {
         }
         lfx = fx; lfy = fy; clamp(); updateMatrix(); invalidate()
     }
-    private fun endNav() {
-        vt?.let { v -> v.computeCurrentVelocity(1000); val vx = v.xVelocity; val vy = v.yVelocity
+    private fun endNav(fling: Boolean = true) {
+        if (fling) vt?.let { v -> v.computeCurrentVelocity(1000); val vx = v.xVelocity; val vy = v.yVelocity
             if (kotlin.math.abs(vy) > 300 || kotlin.math.abs(vx) > 300)
                 scroller.fling(tx.toInt(), ty.toInt(), vx.toInt(), vy.toInt(), Int.MIN_VALUE / 2, Int.MAX_VALUE / 2, Int.MIN_VALUE / 2, Int.MAX_VALUE / 2) }
         mode = Mode.NONE; postInvalidateOnAnimation()

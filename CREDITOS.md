@@ -1,0 +1,13 @@
+# Créditos
+
+ArsNova se distribuye bajo la licencia GPL-3.0 (ver `LICENSE`).
+
+- **Mochy Music** — github.com/realidkroo/Mochy-Music (GPL-3.0). De ahí vienen, copiados y adaptados, los archivos de
+  `app/src/main/java/com/arsnova/ui/mochy/` (pulsación con rebote, resalte redondeado, inclinación 3D, esquinas
+  continuas, interruptor y aparición escalonada), además de la paleta monocroma y la tipografía.
+- **BitChord** — github.com/kushagrasinghx/BitChord (GPL-3.0). La ventana de actualización sigue la forma de su
+  `UpdateAvailableDialog`.
+- **Inter** — rsms.me/inter (SIL Open Font License 1.1).
+
+El motor de tinta (`ink/Nib.kt`, `ink/Ink.kt`, `ink/InkView.kt`) y los iconos (`ui/ArsIcons.kt`) son código propio.
+StarNote, Notewise, FreeNotes, Notability y similares son solo referencias de funciones: su código es cerrado y no se usa.

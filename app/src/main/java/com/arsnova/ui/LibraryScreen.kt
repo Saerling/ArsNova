@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,11 +28,8 @@ import com.arsnova.data.Template
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Settings
+import com.arsnova.ui.mochy.press3D
+import com.arsnova.ui.mochy.revealOnAppear
 import java.text.DateFormat
 import java.util.Date
 
@@ -56,6 +51,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
     var renaming by remember { mutableStateOf<NotebookMeta?>(null) }
     var importing by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
+    val seen = com.arsnova.ui.mochy.rememberRevealSeenState()
     val fp = remember { ctx0.getSharedPreferences("ars", 0) }
     var folders by remember { mutableStateOf(fp.getString("folders", "")!!.split("|").filter { it.isNotBlank() }) }
     var folder by remember { mutableStateOf("") }
@@ -74,36 +70,39 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
 
     Ambient { Scaffold(
         containerColor = Color.Transparent,
-        floatingActionButton = { Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton({ pick.launch(arrayOf("application/pdf")) }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Icon(androidx.compose.material.icons.Icons.Rounded.PictureAsPdf, "Importar PDF") }
-            ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) },
-                text = { Text("Nueva nota") }, shape = RoundedCornerShape(50), containerColor = MaterialTheme.colorScheme.onSurface, contentColor = MaterialTheme.colorScheme.surface)
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = { Pill(Modifier.navigationBarsPadding()) {
+            IconButton({ pick.launch(arrayOf("application/pdf")) }) { Icon(ArsIcons.Import, "Importar PDF") }
+            Button({ creating = true }, Modifier.padding(vertical = 5.dp).padding(end = 2.dp)) { Icon(ArsIcons.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Nueva nota") }
         } },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Notas", style = MaterialTheme.typography.headlineLarge.copy(fontSize = 40.sp), modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 2.dp).weight(1f))
-                Pill(Modifier.padding(top = 20.dp, end = 16.dp)) { IconButton(onSettings) { Icon(androidx.compose.material.icons.Icons.Rounded.Settings, "Ajustes") } }
+                Text("Notas", style = MaterialTheme.typography.headlineLarge.copy(fontSize = 44.sp, lineHeight = 48.sp), modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 2.dp).weight(1f))
+                Pill(Modifier.padding(top = 20.dp, end = 16.dp)) { IconButton(onSettings) { Icon(ArsIcons.Settings, "Ajustes") } }
             }
-            Text("${items.size} cuadernos", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
+            Text(if (items.size == 1) "1 cuaderno" else "${items.size} cuadernos", color = Ars.Muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 26.dp, bottom = 12.dp))
             OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(50),
-                placeholder = { Text("Buscar en títulos y escritura a mano") }, colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f), unfocusedBorderColor = Color.Transparent), leadingIcon = { Icon(androidx.compose.material.icons.Icons.Rounded.Search, null) })
+                placeholder = { Text("Buscar en títulos y escritura a mano") }, colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Ars.Card, focusedContainerColor = Ars.CardHigh, unfocusedBorderColor = Color.Transparent, focusedBorderColor = Color.Transparent, cursorColor = Ars.Text), leadingIcon = { Icon(ArsIcons.Search, null) })
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (listOf("") + folders).forEach { f -> val on = f == folder
-                    Box(Modifier.clip(RoundedCornerShape(50)).background(if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f))
-                        .clickable { folder = f }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(f.ifEmpty { "Todas" }, color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface) } }
-                Box(Modifier.clip(RoundedCornerShape(50)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(50)).clickable { newFolder = true }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text("+ Carpeta") }
+                    val cb by androidx.compose.animation.animateColorAsState(if (on) Ars.Text else Ars.PillFill, label = "chip")
+                    val ct by androidx.compose.animation.animateColorAsState(if (on) Ars.Bg else Ars.Text, label = "chipT")
+                    Box(Modifier.bounceClick { folder = f }.clip(RoundedCornerShape(50)).background(cb).padding(horizontal = 16.dp, vertical = 9.dp)) { Text(f.ifEmpty { "Todas" }, color = ct, style = MaterialTheme.typography.labelLarge) } }
+                Row(Modifier.bounceClick { newFolder = true }.clip(RoundedCornerShape(50)).border(1.dp, Ars.Line, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ArsIcons.Add, null, Modifier.size(16.dp), tint = Ars.Muted); Spacer(Modifier.width(6.dp)); Text("Carpeta", color = Ars.Muted, style = MaterialTheme.typography.labelLarge) }
             }
             val shown = items.filter { (folder.isEmpty() || it.folder == folder) && (q.isBlank() || it.title.contains(q, true) || it.text.contains(q, true)) }
-            if (items.isEmpty()) Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("Crea tu primer cuaderno para empezar a escribir.", color = MaterialTheme.colorScheme.outline)
+            if (items.isEmpty()) Column(Modifier.fillMaxSize().padding(bottom = 120.dp), Arrangement.Center, Alignment.CenterHorizontally) {
+                Box(Modifier.size(72.dp).clip(squircle(24)).background(Ars.Card), contentAlignment = Alignment.Center) { Icon(ArsIcons.Pen, null, Modifier.size(30.dp), tint = Ars.Muted) }
+                Text("Tu primera nota te espera", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 18.dp))
+                Text("Toca «Nueva nota» para empezar a escribir.", color = Ars.Muted, modifier = Modifier.padding(top = 4.dp))
             }
             LazyVerticalGrid(GridCells.Adaptive(150.dp), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 items(shown, key = { it.id }) { m ->
-                    Box(Modifier.animateItem()) {
-                        NotebookCard(repo, m, Modifier.combinedClickable(onClick = { onOpen(m.id) }, onLongClick = { menuFor = m }))
+                    Box(Modifier.animateItem().revealOnAppear(m.id, seen, cascade = true)) {
+                        NotebookCard(repo, m, Modifier.press3D().combinedClickable(remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, null, onClick = { onOpen(m.id) }, onLongClick = { menuFor = m }))
                         DropdownMenu(menuFor?.id == m.id, { menuFor = null }) {
                             DropdownMenuItem({ Text("Renombrar") }, { renaming = m; menuFor = null })
                             DropdownMenuItem({ Text("Mover a carpeta") }, { moving = m; menuFor = null })
@@ -141,19 +140,18 @@ private fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
     }
     val shape = RoundedCornerShape(6.dp, 16.dp, 16.dp, 6.dp)
     Column(modifier) {
-        Box(Modifier.aspectRatio(0.75f).fillMaxWidth().shadow(10.dp, shape).clip(shape).background(Color.White)) {
+        Box(Modifier.aspectRatio(0.75f).fillMaxWidth().shadow(if (Ars.dark) 0.dp else 8.dp, shape, spotColor = Color.Black.copy(alpha = 0.35f)).clip(shape).background(Color.White).border(1.dp, Ars.GlassBorder, shape)) {
             if (m.pattern > 0) {
                 CoverArt(m.cover, m.pattern, Modifier.fillMaxSize())
-                Pill(Modifier.align(Alignment.BottomStart).padding(12.dp)) { Text(m.title, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), maxLines = 1, style = MaterialTheme.typography.labelLarge) }
             } else {
                 thumb?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                 Box(Modifier.fillMaxHeight().width(12.dp).background(Brush.horizontalGradient(listOf(Color(m.cover), Color(m.cover).copy(alpha = 0.7f)))))
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text(m.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        Text(m.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.padding(start = 2.dp))
         Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(m.updated)) + " · ${m.pages} pág.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(start = 2.dp))
     }
 }
 
@@ -214,7 +212,7 @@ private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Tem
                             PaperColors.forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)).border(if (c == paper) 3.dp else 1.dp, if (c == paper) cs.primary else cs.outline.copy(alpha = 0.4f), CircleShape).clickable { paper = c }) }
                             Spacer(Modifier.width(14.dp)); Text("Espacio de línea", style = MaterialTheme.typography.labelLarge)
                             Pill { IconButton({ if (lsp > 0) lsp-- }) { Text("—") }; Text(if (lsp == 0) "Auto" else "$lsp", Modifier.width(40.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                IconButton({ if (lsp < 8) lsp++ }) { Icon(androidx.compose.material.icons.Icons.Rounded.Add, null) } }
+                                IconButton({ if (lsp < 8) lsp++ }) { Icon(ArsIcons.Add, null) } }
                         }
                         Row(Modifier.padding(vertical = 14.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TemplateCats.forEachIndexed { i, (n, _) -> Box(Modifier.clip(RoundedCornerShape(50)).background(if (cat == i) cs.primary.copy(alpha = 0.15f) else cs.onSurface.copy(alpha = 0.06f))
@@ -227,7 +225,7 @@ private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Tem
                                 list.forEach { (t, l) -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(110.dp).clickable { tpl = t }) {
                                     Box { Image(thumb(t, 0.07f), l, Modifier.size(104.dp, 140.dp).clip(RoundedCornerShape(8.dp)).border(if (t == tpl) 3.dp else 1.dp, if (t == tpl) cs.primary else cs.outline.copy(alpha = 0.35f), RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
                                         if (t == tpl) Box(Modifier.align(Alignment.BottomCenter).padding(8.dp).size(22.dp).clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
-                                            Icon(androidx.compose.material.icons.Icons.Rounded.Check, null, Modifier.size(14.dp), tint = cs.onPrimary) } }
+                                            Icon(ArsIcons.Check, null, Modifier.size(14.dp), tint = cs.onPrimary) } }
                                     Text(l, Modifier.padding(top = 6.dp), color = if (t == tpl) cs.primary else cs.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1) } }
                             }
                         }
