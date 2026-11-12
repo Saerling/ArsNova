@@ -20,7 +20,9 @@ class Repo(private val ctx: Context) {
 
     fun thumb(id: String) = File(dir, "$id.png")
 
-    fun load(id: String): Notebook = json.decodeFromString(File(dir, "$id.json").readText())
+    /** Si el archivo principal está dañado, se abre la copia del guardado anterior. */
+    fun load(id: String): Notebook = runCatching { json.decodeFromString<Notebook>(File(dir, "$id.json").readText()) }
+        .getOrElse { json.decodeFromString(File(dir, "$id.bak").readText()) }
 
     fun create(title: String, cover: Int, t: Template, pattern: Int = 0, folder: String = "", paper: Int = -1, spacing: Float = 0f): String {
         val nb = Notebook(UUID.randomUUID().toString(), title, cover, t, System.currentTimeMillis(),
@@ -33,7 +35,7 @@ class Repo(private val ctx: Context) {
     fun saveAsync(nb: Notebook, thumb: Bitmap?) {
         nb.updated = System.currentTimeMillis()
         val snap = Notebook(nb.id, nb.title, nb.cover, nb.template, nb.updated,
-            nb.pages.mapTo(ArrayList()) { Page(it.id, it.template, ArrayList(it.strokes), it.bg, ArrayList(it.items), it.ocr, it.paper, it.spacing) }, ArrayList(nb.recs), nb.pattern, nb.folder)
+            nb.pages.mapTo(ArrayList()) { Page(it.id, it.template, ArrayList(it.strokes), it.bg, ArrayList(it.items), it.ocr, it.paper, it.spacing, it.lines, it.tex) }, ArrayList(nb.recs), nb.pattern, nb.folder)
         io.execute { runCatching { write(snap.id, json.encodeToString(snap), meta(snap), thumb) } }
     }
 
@@ -47,7 +49,7 @@ class Repo(private val ctx: Context) {
 
     fun delete(id: String) = io.execute {
         synchronized(this) {
-            File(dir, "$id.json").delete(); thumb(id).delete()
+            File(dir, "$id.json").delete(); File(dir, "$id.bak").delete(); File(dir, "$id.tmp").delete(); thumb(id).delete()
             dir.listFiles { f -> f.name.startsWith("$id-") }?.forEach { it.delete() }
             saveIndex(list().filter { it.id != id })
         }
@@ -77,7 +79,9 @@ class Repo(private val ctx: Context) {
         nb.pages.joinToString(" ") { p -> p.ocr + " " + p.items.joinToString(" ") { it.text } }.take(6000), nb.pattern, nb.folder)
 
     @Synchronized private fun write(id: String, s: String, m: NotebookMeta, thumb: Bitmap?) {
-        val tmp = File(dir, "$id.tmp"); tmp.writeText(s); tmp.renameTo(File(dir, "$id.json"))
+        val tmp = File(dir, "$id.tmp"); tmp.writeText(s)
+        val main = File(dir, "$id.json"); if (main.length() > 0) main.renameTo(File(dir, "$id.bak"))   // el guardado anterior queda de respaldo
+        tmp.renameTo(main)
         thumb?.let { b -> thumb(id).outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 90, it) } }
         saveIndex(list().filter { it.id != id } + m)
     }

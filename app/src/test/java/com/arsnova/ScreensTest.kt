@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onLast
@@ -66,4 +67,8 @@ class ScreensTest {
     @Test fun newNotebook() { val (r, _) = repo(); rule.setContent { ArsTheme(2) { LibraryScreen(r, {}) {} } }
         rule.onNode(androidx.compose.ui.test.hasText("Nueva nota")).performClick(); rule.waitForIdle()
         rule.onAllNodes(androidx.compose.ui.test.isRoot()).onLast().captureRoboImage("build/shots/new-notebook.png") }
+    @Test fun latexPane() { val (r, id) = repo(); com.arsnova.ink.Latex.init(RuntimeEnvironment.getApplication())
+        val sheet = com.arsnova.ink.Ink.render(r.load(id).pages[0], 0.5f).asImageBitmap()
+        val tex = "\\documentclass{article}\n\\begin{document}\n\\section{Energía libre de Gibbs}\nPara un proceso a $ T $ y $ P $ constantes el criterio de espontaneidad es $ \\Delta G < 0 $, donde se cumple la relación fundamental entre entalpía y entropía del sistema.\n\\[ \\Delta G = \\Delta H - T\\Delta S \\]\n\\subsection{Equilibrio}\n\\begin{itemize}\n\\item En el equilibrio $ \\Delta G = 0 $\n\\item La constante es $ K = e^{-\\Delta G^{\\circ}/RT} $\n\\end{itemize}\n\\begin{align} \\ln K &= -\\frac{\\Delta H^{\\circ}}{RT} + \\frac{\\Delta S^{\\circ}}{R} \\end{align}\n\\end{document}"
+        rule.setContent { ArsTheme(2) { com.arsnova.ui.LatexPane("Termodinámica", sheet, tex, false, {}, {}, {}) {} } }; shot("latex-pane") }
 }

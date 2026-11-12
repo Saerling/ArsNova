@@ -67,6 +67,11 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
             item {
                 Header("Escritura"); Group {
                 Toggle("Enderezar líneas y figuras", "Mantén el trazo quieto para convertirlo en línea, círculo, rectángulo o triángulo", shapes) { shapes = it; p.edit().putBoolean("shapes", it).apply() }
+                var rec by remember { mutableStateOf("Comprobando…") }
+                suspend fun check() { rec = if (com.arsnova.ink.Recognizer.ensure()) "Listo · en el dispositivo, sin internet" else "No disponible: ${com.arsnova.ink.Recognizer.error}" }
+                LaunchedEffect(Unit) { check() }
+                ListItem({ Text("Reconocimiento de escritura") }, supportingContent = { Text("$rec\nSirve para buscar dentro de tus notas y convertir tinta a texto (modelo de ~20 MB que se descarga una vez)") },
+                    trailingContent = { TextButton({ rec = "Descargando…"; scope.launch { check() } }) { Text("Reintentar") } })
                 Choice("Plantilla por defecto", listOf("Blanco", "Rayado", "Cuadrícula", "Puntos"), tpl) { tpl = it; p.edit().putInt("tpl", it).apply() } } }
             item {
                 Header("IA en el dispositivo"); Group {

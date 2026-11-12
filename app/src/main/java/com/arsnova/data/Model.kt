@@ -69,11 +69,18 @@ class Stroke(
 
 @Serializable
 class Page(val id: Long, var template: Template, val strokes: MutableList<Stroke> = mutableListOf(), var bg: String? = null,
-    val items: MutableList<Item> = mutableListOf(), var ocr: String = "", var paper: Int = -1, var spacing: Float = 0f) {
+    val items: MutableList<Item> = mutableListOf(), var ocr: String = "", var paper: Int = -1, var spacing: Float = 0f,
+    /** Renglones reconocidos (texto y dónde están) para buscar dentro de la nota. */
+    var lines: List<OcrLine> = emptyList(),
+    /** Versión LaTeX de la página. */
+    var tex: String = "") {
     fun next() = Page(System.nanoTime(), template, paper = paper, spacing = spacing)
 }
 
-/** Elemento no-tinta: 0 = texto, 1 = imagen. */
+@Serializable
+class OcrLine(val text: String, val l: Float, val t: Float, val r: Float, val b: Float)
+
+/** Elemento no-tinta: 2 = fórmula LaTeX; 0 = texto, 1 = imagen. */
 @Serializable
 class Item(val id: Long, val kind: Int, var x: Float, var y: Float, var w: Float, var h: Float = 0f,
     var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt(), var align: Int = 0, var bold: Boolean = false) {

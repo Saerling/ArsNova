@@ -16,6 +16,8 @@ App de notas a mano para Android (tablet y teléfono), en la línea de Notabilit
 
 **Barra:** estilo Apple (cada lápiz es su propio botón), editable, acoplable a los cuatro bordes y, minimizada, libre. Favoritos de lápiz, ajuste fino de grosor/estabilización/opacidad, mantener para borrar, zooms guardados y página a LaTeX.
 
+**Buscar y LaTeX:** lupa para buscar palabras dentro de la nota (tu letra se reconoce en el dispositivo y se resalta dónde está) y Vista LaTeX por página con cambio entre Manuscrito, Código, Vista previa y Dividida.
+
 **Diseño:** estética monocroma de Mochy Music (Inter, esquinas continuas, pulsación con rebote) e iconos propios. Ver `CREDITOS.md`.
 
 **Desarrollo:** `gradle testDebugUnitTest` genera imágenes de los lápices e iconos (`app/build/ink`) y capturas de las pantallas (`app/build/shots`).

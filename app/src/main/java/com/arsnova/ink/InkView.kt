@@ -226,6 +226,21 @@ class InkView(context: Context) : View(context) {
         return Item(System.nanoTime(), kind, (c[0] - 160f).coerceIn(40f, Ink.PAGE_W - 360f), c[1] - 40f, 320f, size = size, color = color)
     }
 
+    // ---- buscador: cajas resaltadas sobre la hoja
+    class Mark(val page: Page, val r: RectF)
+    var marks: List<Mark> = emptyList()
+        set(v) { field = v; invalidate() }
+    var markSel = -1
+        set(v) { field = v; invalidate() }
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** Lleva una zona de una página al centro de la pantalla. */
+    fun showRect(p: Page, r: RectF) {
+        val i = pages.indexOf(p); if (i < 0) return
+        val fromX = tx; val fromY = ty; val toX = width / 2f - r.centerX() * scale; val toY = height / 2f - (top(i) + r.centerY()) * scale
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply { duration = 340; interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener { val f = it.animatedValue as Float; tx = fromX + (toX - fromX) * f; ty = fromY + (toY - fromY) * f; animating = it.animatedFraction < 1f; clamp(); updateMatrix(); invalidate() }; start() }
+    }
+
     /** Mantener la punta quieta ~medio segundo: ese trazo se vuelve borrador hasta levantar el lápiz. */
     var holdErase = true
     private var downSX = 0f; private var downSY = 0f
@@ -414,6 +429,11 @@ class InkView(context: Context) : View(context) {
             c.save(); c.concat(matrix); c.translate(0f, top(i)); pageShadow(c)
             c.scale(Ink.PAGE_W / b.width, Ink.PAGE_H / b.height); c.drawBitmap(b, 0f, 0f, bmpPaint); c.restore()
         }
+        marks.forEachIndexed { k, m -> val i = pages.indexOf(m.page)
+            if (i in first..last) { c.save(); c.concat(matrix); c.translate(0f, top(i))
+                markPaint.style = Paint.Style.FILL; markPaint.color = if (k == markSel) 0x70FFB300 else 0x45FFD54F; c.drawRoundRect(m.r, 8f, 8f, markPaint)
+                if (k == markSel) { markPaint.style = Paint.Style.STROKE; markPaint.strokeWidth = dp(2f) / scale; markPaint.color = 0xFFFF9800.toInt(); c.drawRoundRect(m.r, 8f, 8f, markPaint) }
+                c.restore() } }
         Ink.darkPaper = Ink.isDark(page?.paper ?: -1)
         if (pcache.size > last - first + 3) { val keep = (maxOf(0, first - 1)..minOf(pages.size - 1, last + 1)).map { pages[it].id }.toHashSet()
             pcache.keys.filter { it !in keep }.forEach { pcache.remove(it)?.bmp?.recycle() } }

@@ -33,6 +33,7 @@ import androidx.core.content.FileProvider
 import com.arsnova.data.*
 import com.arsnova.ink.Ink as InkR
 import com.arsnova.ink.InkView
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import kotlinx.coroutines.delay
@@ -44,7 +45,9 @@ import java.io.File
 fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("ars", Context.MODE_PRIVATE) }
-    val nb = remember(id) { repo.load(id) }
+    val loaded = remember(id) { runCatching { repo.load(id) }.getOrNull() }
+    if (loaded == null) { LaunchedEffect(Unit) { android.widget.Toast.makeText(ctx, "No se pudo abrir este cuaderno", android.widget.Toast.LENGTH_LONG).show(); onBack() }; return }
+    val nb: Notebook = loaded
     var pageIdx by remember { mutableIntStateOf(0) }
     var stylusOnly by remember { mutableStateOf(prefs.getBoolean("stylusOnly", false)) }
     var canUndo by remember { mutableStateOf(false) }
@@ -123,19 +126,26 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     }
     // La miniatura se redibuja al salir (y mientras la primera hoja sea ligera); guardar ya no frena la escritura.
     fun save(thumb: Boolean = nb.pages[0].strokes.size < 300) = repo.saveAsync(nb, if (thumb) InkR.render(nb.pages[0], 0.25f) else null)
-    fun pageToLatex() {
-        val key = prefs.getString("aiKey", null)
-        if (key.isNullOrBlank()) { android.widget.Toast.makeText(ctx, "Añade tu clave de API de Claude en Ajustes para convertir a LaTeX", android.widget.Toast.LENGTH_LONG).show(); return }
-        android.widget.Toast.makeText(ctx, "Convirtiendo la página a LaTeX…", android.widget.Toast.LENGTH_SHORT).show()
-        val bmp = InkR.render(nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)], 0.85f)
-        scope.launch {
-            val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val o = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o); bmp.recycle()
-                val tex = Ai.latexDoc(key, o.toByteArray())
-                File(File(ctx.cacheDir, "exports").apply { mkdirs() }, nb.title.replace(Regex("[^\\w\\- ]"), "_") + ".tex").apply { writeText(tex) } } }
-            r.onSuccess { f -> ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(ctx, "com.arsnova.files", f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Exportar LaTeX")) }
-                .onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() }
-        }
+    fun exportTex(tex: String) {
+        val f = File(File(ctx.cacheDir, "exports").apply { mkdirs() }, nb.title.replace(Regex("[^\\w\\- ]"), "_") + ".tex").apply { writeText(tex) }
+        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(ctx, "com.arsnova.files", f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Exportar LaTeX"))
+    }
+    var latexView by remember { mutableStateOf(false) }
+    var texBusy by remember { mutableStateOf(false) }
+    // ---- buscador dentro de la nota
+    var finding by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var hits by remember { mutableStateOf(listOf<InkView.Mark>()) }
+    var hitIdx by remember { mutableIntStateOf(0) }
+    var indexing by remember { mutableStateOf<String?>(null) }
+    fun norm(t: String) = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+    fun go(k: Int) { if (hits.isEmpty()) return; hitIdx = ((k % hits.size) + hits.size) % hits.size; view.markSel = hitIdx; hits[hitIdx].let { view.showRect(it.page, it.r) } }
+    fun search() {
+        val q = norm(query.trim())
+        hits = if (q.length < 2) emptyList() else nb.pages.flatMap { p ->
+            p.lines.filter { norm(it.text).contains(q) }.map { InkView.Mark(p, android.graphics.RectF(it.l, it.t, it.r, it.b)) } +
+                p.items.filter { it.kind != 1 && norm(it.text).contains(q) }.map { InkView.Mark(p, it.bounds()) } }
+        view.marks = hits; if (hits.isEmpty()) view.markSel = -1 else go(0)
     }
     var indexed by remember { mutableIntStateOf(-1) }
     var pages by remember { mutableStateOf(false) }
@@ -156,7 +166,15 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         }
     }
     // Indexa el texto manuscrito de la página actual en segundo plano (búsqueda).
-    LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages.getOrNull(pageIdx) ?: return@LaunchedEffect; val t = com.arsnova.ink.Recognizer.recognize(p.strokes.toList()); if (t != p.ocr) { p.ocr = t; save() } }
+    LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages.getOrNull(pageIdx) ?: return@LaunchedEffect
+        val l = com.arsnova.ink.Recognizer.lines(p.strokes.toList()); if (com.arsnova.ink.Recognizer.error != null) return@LaunchedEffect
+        val t = l.joinToString("\n") { it.text }; if (t != p.ocr || p.lines.size != l.size) { p.ocr = t; p.lines = l; save() } }
+    // al abrir el buscador se reconocen las páginas que aún no lo estén
+    LaunchedEffect(finding) { if (finding) {
+        nb.pages.forEachIndexed { i, p -> if (p.strokes.isNotEmpty() && p.lines.isEmpty()) { indexing = "${i + 1}/${nb.pages.size}"
+            val l = com.arsnova.ink.Recognizer.lines(p.strokes.toList()); if (com.arsnova.ink.Recognizer.error == null) { p.lines = l; p.ocr = l.joinToString("\n") { it.text } } } }
+        if (indexing != null) { indexing = null; dirty++ }; search() } else { view.marks = emptyList(); view.markSel = -1 } }
+    LaunchedEffect(query) { if (finding) { delay(220); search() } }
 
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
@@ -183,7 +201,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
     DisposableEffect(Unit) {
-        StylusKeys.handler = { e ->
+        val keyHandler: (android.view.KeyEvent) -> Boolean = { e ->
             val c = e.keyCode
             val sys = c == android.view.KeyEvent.KEYCODE_BACK || c == android.view.KeyEvent.KEYCODE_VOLUME_UP || c == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
             when {
@@ -192,7 +210,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 else -> false
             }
         }
-        onDispose { StylusKeys.handler = null; audio.release()
+        StylusKeys.handler = keyHandler
+        onDispose { if (StylusKeys.handler === keyHandler) StylusKeys.handler = null; audio.release()
  save(true); prefs.edit().putBoolean("stylusOnly", stylusOnly).apply() } }
 
     Scaffold(
@@ -204,6 +223,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
                         Icon(if (audio.recording) ArsIcons.Stop else ArsIcons.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
                     if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(ArsIcons.Headphones, "Reproducir") }
+                    IconButton({ finding = !finding }) { Icon(ArsIcons.Search, "Buscar en la nota") }
                     Box { TextButton({ zoomMenu = true }) { Text("$zoom %", style = MaterialTheme.typography.labelLarge) }
                         DropdownMenu(zoomMenu, { zoomMenu = false }) {
                             DropdownMenuItem({ Text("Ajustar al ancho") }, { view.zoomTo(100); zoomMenu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
@@ -231,7 +251,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             leadingIcon = { Icon(ArsIcons.Edit, null) })
                         DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
                         DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(ArsIcons.Sparkle, null) })
-                        DropdownMenuItem({ Text("Página a LaTeX (IA)") }, { menu = false; pageToLatex() }, leadingIcon = { Icon(ArsIcons.Sigma, null) })
+                        DropdownMenuItem({ Text("Vista LaTeX") }, { menu = false; latexView = true }, leadingIcon = { Icon(ArsIcons.Sigma, null) })
                         DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(ArsIcons.Export, null) })
                     }
                 } },
@@ -345,6 +365,29 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     }
                 }
             }
+            AnimatedVisibility(finding, Modifier.align(Alignment.TopCenter).padding(top = topPad + 6.dp),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 }, exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it / 2 }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Pill {
+                        Icon(ArsIcons.Search, null, Modifier.padding(start = 12.dp).size(20.dp), tint = Ars.Muted)
+                        val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+                        LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
+                        Box(Modifier.width(260.dp).padding(horizontal = 10.dp, vertical = 12.dp)) {
+                            if (query.isEmpty()) Text("Buscar en esta nota", color = Ars.Muted)
+                            androidx.compose.foundation.text.BasicTextField(query, { query = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ars.Text), cursorBrush = androidx.compose.ui.graphics.SolidColor(Ars.Text),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { go(hitIdx + 1) }))
+                        }
+                        Text(if (hits.isEmpty()) (if (query.trim().length < 2) "" else "0") else "${hitIdx + 1}/${hits.size}", color = Ars.Muted, style = MaterialTheme.typography.labelLarge)
+                        IconButton({ go(hitIdx - 1) }, enabled = hits.size > 1) { Icon(ArsIcons.Up, "Anterior") }
+                        IconButton({ go(hitIdx + 1) }, enabled = hits.size > 1) { Icon(ArsIcons.Down, "Siguiente") }
+                        IconButton({ finding = false }) { Icon(ArsIcons.Close, "Cerrar") }
+                    }
+                    val note = indexing?.let { "Leyendo tu letra… página $it" } ?: com.arsnova.ink.Recognizer.error?.let { "El reconocimiento de escritura no está disponible ($it). Revísalo en Ajustes." }
+                    if (note != null) Pill(Modifier.padding(top = 6.dp)) { Text(note, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium, color = Ars.Muted) }
+                }
+            }
             // ---- Barra: se arrastra del tirador a cualquiera de los cuatro bordes; minimizada es un botón que se mueve libremente.
             var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
             var gripAt by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
@@ -378,6 +421,19 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(ArsIcons.Smile, null) })
                         }
                     }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false; picker = null }, dock = dock, handle = handle, grouped = grouped, penIdx = lastPen, art = barArt)
+            }
+            if (latexView) {
+                val pg = nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)]
+                var tex by remember(pg) { mutableStateOf(pg.tex) }
+                val sheet = remember(pg) { InkR.render(pg, 0.7f).asImageBitmap() }
+                LatexPane(nb.title, sheet, tex, texBusy, { tex = it; pg.tex = it; dirty++ }, onConvert = {
+                    val key = prefs.getString("aiKey", null)
+                    if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir la página añade tu clave de API de Claude en Ajustes. También puedes escribir el LaTeX a mano en «Código».", android.widget.Toast.LENGTH_LONG).show()
+                    else { texBusy = true; val bmp = InkR.render(pg, 0.85f); scope.launch {
+                        val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val o = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o); bmp.recycle(); Ai.latexDoc(key, o.toByteArray()) } }
+                        texBusy = false
+                        r.onSuccess { tex = it; pg.tex = it; dirty++ }.onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() } } }
+                }, onExport = { exportTex(tex) }) { latexView = false }
             }
             if (collapsed) {
                 // posición libre, guardada como fracción de la pantalla
