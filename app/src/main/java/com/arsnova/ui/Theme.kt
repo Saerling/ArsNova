@@ -25,6 +25,19 @@ import androidx.compose.ui.unit.sp
 import com.arsnova.R
 import com.arsnova.ui.mochy.RoundedHighlight
 
+/** Personalización (Ajustes → Personalización): se guarda en las preferencias y toda la interfaz la lee de aquí. */
+object Look {
+    /** Opacidad del cristal de barras y paneles flotantes (más bajo = más translúcido). */
+    var glass by androidx.compose.runtime.mutableFloatStateOf(0.86f)
+    /** 0 = superelipse de Mochy, 1 = continuas de BitChord, 2 = redondas clásicas. */
+    var corners by androidx.compose.runtime.mutableIntStateOf(0)
+    var bounce by mutableStateOf(true)
+    /** Mesa bajo la hoja: 0 según el tema, 1 clara, 2 oscura. */
+    var desk by androidx.compose.runtime.mutableIntStateOf(0)
+    fun load(p: android.content.SharedPreferences) { glass = p.getFloat("lookGlass", 0.86f); corners = p.getInt("lookCorners", 0); bounce = p.getBoolean("lookBounce", true); desk = p.getInt("lookDesk", 0) }
+    fun save(p: android.content.SharedPreferences) = p.edit().putFloat("lookGlass", glass).putInt("lookCorners", corners).putBoolean("lookBounce", bounce).putInt("lookDesk", desk).apply()
+}
+
 /**
  * Paleta monocroma de Mochy Music (negro, grises y blanco; nada de color de marca): el color lo pone
  * la tinta de tus notas. En claro son los mismos escalones invertidos.
@@ -38,7 +51,7 @@ object Ars {
     /** Hojas y menús. */
     val Sheet get() = if (dark) Color(0xFF161619) else Color(0xFFFFFFFF)
     /** Cristal de las barras flotantes sobre el lienzo. */
-    val Glass get() = if (dark) Color(0xF2171719) else Color(0xF5FFFFFF)
+    val Glass get() = (if (dark) Color(0xFF171719) else Color.White).copy(alpha = Look.glass)
     val GlassBorder get() = if (dark) Color(0x14FFFFFF) else Color(0x14000000)
     val Text get() = if (dark) Color.White else Color(0xFF111114)
     val Muted get() = if (dark) Color(0xFF9A9AA0) else Color(0xFF6B6B73)
@@ -47,7 +60,7 @@ object Ars {
     val Line get() = if (dark) Color(0xFF232326) else Color(0x1A000000)
     val Highlight get() = if (dark) Color(0x1FFFFFFF) else Color(0x14000000)
     /** Mesa bajo las hojas del cuaderno. */
-    val Desk get() = if (dark) 0xFF0A0A0B.toInt() else 0xFFECECEF.toInt()
+    val Desk get() = if (Look.desk == 2 || (Look.desk == 0 && dark)) 0xFF0A0A0B.toInt() else 0xFFECECEF.toInt()
 }
 
 val Inter = FontFamily(

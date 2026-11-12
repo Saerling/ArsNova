@@ -21,10 +21,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
@@ -40,13 +42,17 @@ import com.arsnova.ui.mochy.pressBounce
  */
 
 /** Esquinas continuas ("squircle") de Mochy. */
-fun squircle(radius: Int): Shape = SmoothCornerShape(radius.dp)
+fun squircle(radius: Int): Shape = when (Look.corners) {
+    1 -> androidx.compose.foundation.shape.CornerSize(radius.dp).let { com.arsnova.ui.bitchord.ContinuousCornerShape(it, it, it, it) }
+    2 -> androidx.compose.foundation.shape.RoundedCornerShape(radius.dp)
+    else -> SmoothCornerShape(radius.dp)
+}
 
 /** Pulsación con rebote, sin onda. */
 @Composable
 fun Modifier.bounceClick(enabled: Boolean = true, scale: Float = 0.9f, role: Role? = null, onClick: () -> Unit): Modifier {
     val src = remember { MutableInteractionSource() }
-    return pressBounce(src, scale).clickable(src, null, enabled = enabled, role = role, onClick = onClick)
+    return (if (Look.bounce) pressBounce(src, scale) else this).clickable(src, if (Look.bounce) null else androidx.compose.foundation.LocalIndication.current, enabled = enabled, role = role, onClick = onClick)
 }
 
 @Composable
@@ -83,3 +89,45 @@ fun HorizontalDivider(modifier: Modifier = Modifier, color: Color = Ars.Line) =
 fun DropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, scrollState: ScrollState = rememberScrollState(), content: @Composable ColumnScope.() -> Unit) =
     androidx.compose.material3.DropdownMenu(expanded, onDismissRequest, modifier, scrollState = scrollState, shape = squircle(22), containerColor = Ars.Sheet,
         tonalElevation = 0.dp, shadowElevation = 14.dp, border = BorderStroke(1.dp, Ars.GlassBorder), content = content)
+
+/** Diálogo como hoja de Mochy: tarjeta de esquinas continuas que entra con un leve aumento, acciones en píldora. */
+@Composable
+fun AlertDialog(onDismissRequest: () -> Unit, confirmButton: @Composable () -> Unit, modifier: Modifier = Modifier, dismissButton: (@Composable () -> Unit)? = null,
+    title: (@Composable () -> Unit)? = null, text: (@Composable () -> Unit)? = null) {
+    androidx.compose.ui.window.Dialog(onDismissRequest) {
+        val a = remember { androidx.compose.animation.core.Animatable(0f) }
+        androidx.compose.runtime.LaunchedEffect(Unit) { a.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 420f)) }
+        androidx.compose.material3.Surface(modifier.alpha(a.value.coerceIn(0f, 1f)).scale(0.92f + 0.08f * a.value), shape = squircle(30), color = Ars.Sheet, border = BorderStroke(1.dp, Ars.GlassBorder), shadowElevation = 18.dp) {
+            androidx.compose.foundation.layout.Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 12.dp)) {
+                if (title != null) CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.titleLarge, LocalContentColor provides Ars.Text) { title() }
+                if (text != null) Box(Modifier.padding(top = if (title != null) 12.dp else 0.dp).weight(1f, fill = false)) {
+                    CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyMedium, LocalContentColor provides Ars.Text) { text() } }
+                Row(Modifier.padding(top = 10.dp).align(Alignment.End), verticalAlignment = Alignment.CenterVertically) { dismissButton?.invoke(); confirmButton() }
+            }
+        }
+    }
+}
+/** Fila de menú con el resalte redondeado de Mochy (sin onda). */
+@Composable
+fun DropdownMenuItem(text: @Composable () -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier, leadingIcon: (@Composable () -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null, enabled: Boolean = true) {
+    Row(modifier.padding(horizontal = 6.dp).clip(squircle(14)).clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.4f).defaultMinSize(minWidth = 190.dp).padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        if (leadingIcon != null) { Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { leadingIcon() }; androidx.compose.foundation.layout.Spacer(Modifier.size(14.dp)) }
+        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge) { Box(Modifier.weight(1f, fill = trailingIcon != null)) { text() } }
+        if (trailingIcon != null) { androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp)); trailingIcon() }
+    }
+}
+
+/** Selector de opciones: pista en píldora y la opción elegida invertida (como las pestañas activas de Mochy). */
+@Composable
+fun SingleChoiceSegmentedButtonRow(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) =
+    Row(modifier.clip(squircle(15)).background(Ars.PillFill).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+
+@Composable
+fun RowScope.SegmentedButton(selected: Boolean, onClick: () -> Unit, shape: Shape, modifier: Modifier = Modifier, label: @Composable () -> Unit) {
+    val bg by androidx.compose.animation.animateColorAsState(if (selected) Ars.Text else Color.Transparent, androidx.compose.animation.core.tween(180), label = "seg")
+    val fg by androidx.compose.animation.animateColorAsState(if (selected) Ars.Bg else Ars.Text, androidx.compose.animation.core.tween(180), label = "segT")
+    Box(modifier.weight(1f).bounceClick(scale = 0.95f, onClick = onClick).clip(squircle(12)).background(bg).padding(horizontal = 8.dp, vertical = 9.dp), contentAlignment = Alignment.Center) {
+        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.labelLarge, LocalContentColor provides fg) { label() } }
+}

@@ -44,6 +44,12 @@ object Ink {
         val px = ByteArray(n * n) { (150 + r.nextInt(106)).toByte() }; b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(px))
         BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
     }
+    /** Cera: grano grueso e irregular, como un crayón sobre papel. */
+    private val wax: BitmapShader by lazy {
+        val n = 64; val b = Bitmap.createBitmap(n, n, Bitmap.Config.ALPHA_8); val r = java.util.Random(11)
+        val px = ByteArray(n * n) { val v = r.nextInt(100); (if (v < 14) 70 + r.nextInt(60) else 185 + r.nextInt(70)).toByte() }; b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(px))
+        BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT).apply { setLocalMatrix(Matrix().apply { setScale(1.9f, 1.9f) }) }
+    }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private var hidOf = false
     private val tapeP = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -99,8 +105,9 @@ object Ink {
                 for (k in 1 until n / 3) { val x0 = pts[3 * k - 3]; val y0 = pts[3 * k - 2]; val x1 = pts[3 * k]; val y1 = pts[3 * k + 1]; dist += hypot(x1 - x0, y1 - y0)
                     while (dist > width * 0.8f) { dist -= width * 0.8f; c.drawCircle(x1 + (rnd.nextFloat() - .5f) * width * 0.5f, y1 + (rnd.nextFloat() - .5f) * width * 0.5f, width * (0.25f + 0.25f * pts[3 * k + 2]), fill) } }; return }
             11 -> { drawTape(c, pts, n, width, color, hidOf); return }
+            13 -> { flat.color = color; flat.strokeWidth = width; flat.pathEffect = DashPathEffect(floatArrayOf(width * 2.6f, width * 2.2f), 0f); c.drawPath(path, flat); flat.pathEffect = null; return }
         }
-        fill.color = color; fill.shader = if (style == 2) grain else null
+        fill.color = color; fill.shader = if (style == 2) grain else if (style == 12) wax else null
         c.drawPath(path, fill)
         fill.shader = null
     }
@@ -108,7 +115,7 @@ object Ink {
     fun buildPath(pts: FloatArray, n: Int, width: Float, style: Int): Path {
         val path = Path(); val cnt = n / 3
         if (cnt == 0) return path
-        if (style == 5 || style == 6 || style in 8..11) {
+        if (style == 5 || style == 6 || style in 8..11 || style == 13) {
             var px = pts[0]; var py = pts[1]; path.moveTo(px, py)
             if (cnt == 1) path.lineTo(px + 0.1f, py)
             for (i in 1 until cnt) {

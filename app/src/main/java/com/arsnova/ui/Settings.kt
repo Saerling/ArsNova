@@ -55,7 +55,21 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
 
     Ambient { Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar({ Text("Ajustes", style = MaterialTheme.typography.headlineLarge) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent), navigationIcon = { IconButton(onBack) { Icon(ArsIcons.Back, "Atrás") } }) }) { pad ->
         LazyColumn(Modifier.padding(pad)) {
-            item { Header("Apariencia"); Group {; Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme) } }
+            item { Header("Personalización"); Group {
+                Choice("Tema", listOf("Sistema", "Claro", "Oscuro"), theme, onTheme)
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Text("Transparencia de barras y paneles", Modifier.weight(1f)); Text("${Math.round((1f - Look.glass) * 100)} %", color = Ars.Muted) }
+                    Slider(1f - Look.glass, { Look.glass = 1f - it; Look.save(p) }, valueRange = 0f..0.5f)
+                    // muestra en vivo
+                    Box(Modifier.fillMaxWidth().height(64.dp).clip(squircle(18)).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(androidx.compose.ui.graphics.Color(0xFF2D5BD9), androidx.compose.ui.graphics.Color(0xFFF2B705), androidx.compose.ui.graphics.Color(0xFFE5484D)))), contentAlignment = Alignment.Center) {
+                        Pill { Icon(ArsIcons.Pen, null, Modifier.padding(start = 14.dp)); Text("Así se ven las barras", Modifier.padding(horizontal = 12.dp, vertical = 11.dp), style = MaterialTheme.typography.labelLarge) } }
+                }
+                Choice("Esquinas", listOf("Mochy", "Continuas (BitChord)", "Redondas"), Look.corners) { Look.corners = it; Look.save(p) }
+                Choice("Mesa bajo la hoja", listOf("Según el tema", "Clara", "Oscura"), Look.desk) { Look.desk = it; Look.save(p) }
+                Toggle("Rebote al pulsar", "Los botones se encogen bajo el dedo y vuelven con un pequeño rebote", Look.bounce) { Look.bounce = it; Look.save(p) }
+                var art by remember { mutableStateOf(p.getBoolean("barArt", true)) }; var grp by remember { mutableStateOf(p.getBoolean("grouped", false)) }
+                Toggle("Lápices con forma en la barra", "Cada lápiz asoma de pie, como en Apple; apagado, iconos", art) { art = it; p.edit().putBoolean("barArt", it).apply() }
+                Toggle("Agrupar los lápices en un botón", "La barra muestra solo el lápiz en uso; los demás siguen en la rueda", grp) { grp = it; p.edit().putBoolean("grouped", it).apply() } } }
             item {
                 Header("Lápiz"); Group {
                 Toggle("Solo lápiz", "Rechazo de palma: el dedo solo mueve y hace zoom", stylus) { stylus = it; p.edit().putBoolean("stylusOnly", it).apply() }
@@ -90,9 +104,9 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                         } }, enabled = dl == null) { Text("Descargar") }
                     }) } }
             item {
-                Header("IA en la nube (opcional)"); Group {
+                Header("IA en la nube (para LaTeX y resúmenes)"); Group {
                 OutlinedTextField(key, { key = it; p.edit().putString("aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    label = { Text("Clave de API de Claude") }, singleLine = true, supportingText = { Text("Se guarda solo en este dispositivo") }) } }
+                    label = { Text("Clave de API de Gemini o de Claude") }, singleLine = true, supportingText = { Text("Gemini tiene nivel gratuito: crea la clave en aistudio.google.com/apikey. Se guarda solo en este dispositivo.") }) } }
             item {
                 Header("Copia de seguridad"); Group {
                 val repo = remember { com.arsnova.data.Repo(ctx.applicationContext) }

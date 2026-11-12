@@ -36,7 +36,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** Estilos de tinta: 0 bolígrafo, 1 pluma, 2 lápiz, 3 pincel, 4 monolínea, 5 rotulador, 6 resaltador. */
-val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta")
+val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta", "Crayón", "Línea discontinua")
 
 @Serializable
 data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f) {
@@ -49,7 +49,7 @@ object Slots {
     val defaults = listOf(Slot(Tool.PEN, 0, 0xFF1D1B18.toInt(), 3.5f), Slot(Tool.PEN, 1, 0xFF2D5BD9.toInt(), 4f), Slot(Tool.PEN, 2, 0xFF3A3A3C.toInt(), 5f),
         Slot(Tool.HIGHLIGHTER, 6, 0xFFF2B705.toInt(), 28f, 0.5f), Slot(Tool.ERASER, 0, 0, 16f), Slot(Tool.LASSO, 0, 0, 0f), Slot(Tool.TAPE, 0, 0xFF7FB3D5.toInt(), 44f), Slot(Tool.LASER, 0, 0xFFFF3B30.toInt(), 8f))
     /** Orden de estilos de lápiz. */
-    val penOrder = listOf(1, 7, 0, 4, 2, 3, 5, 8, 9, 10)
+    val penOrder = listOf(0, 1, 2, 12, 5, 3, 7, 4, 13, 9)
     fun fresh(t: Tool, style: Int = 0) = when (t) { Tool.HIGHLIGHTER -> defaults[3]; Tool.ERASER -> defaults[4]; Tool.LASSO -> defaults[5]; Tool.TAPE -> defaults[6]; Tool.LASER -> defaults[7]
         else -> Slot(Tool.PEN, style, 0xFF1D1B18.toInt(), if (style == 3) 9f else 4f) }
     fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots2", null)!!) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: defaults
@@ -86,6 +86,8 @@ private object PenArt {
         "marker" to listOf("M11 36 L14 22 L26 22 L29 36 Z" to "white", "M15 22 L15.8 12.5 L24.2 9 L25 22 Z" to "ink"),
         "highlighter" to listOf("M11 36 L13 24 L27 24 L29 36 Z" to "white", "M13.6 24 L13.6 15.5 L26.4 10 L26.4 24 Z" to "inka"),
         "eraser" to listOf("M11 30 L11 17 Q11 8.5 20 8.5 Q29 8.5 29 17 L29 30 Z" to "pink", "M11 30 L29 30 L29 33 L11 33 Z" to "metal"),
+        "crayon" to listOf("M11 36 L12.5 21 L27.5 21 L29 36 Z" to "white", "M13.5 21 L15.5 9.5 Q20 5.5 24.5 9.5 L26.5 21 Z" to "ink", "M11 30 L29 30 L29 33 L11 33 Z" to "inka"),
+        "dash" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "ink", "M13.2 28 L26.8 28 L27.6 30.4 L12.4 30.4 Z" to "ink", "M15.2 22 L24.8 22 L25.6 24.4 L14.4 24.4 Z" to "ink"),
         "lasso" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20 5 Z" to "gray")
     )
     val parts: Map<String, List<Pair<Path, String>>> by lazy { raw.mapValues { (_, l) -> l.map { androidx.compose.ui.graphics.vector.PathParser().parsePathString(it.first).toPath() to it.second } } }
@@ -96,7 +98,7 @@ private object PenArt {
         "wood" to g(0xFFD2A878, 0xFFF2D9B8, 0xFFC69A6B), "pink" to g(0xFFE8938F, 0xFFF9C2BE, 0xFFDE837F))
     fun key(s: Slot) = when (s.tool) { Tool.ERASER -> "eraser"; Tool.LASSO -> "lasso"; Tool.HIGHLIGHTER -> "highlighter"
         Tool.TAPE -> "tape"; Tool.LASER -> "laser"
-        else -> when (s.style) { 1 -> "fountain"; 2 -> "pencil"; 3 -> "brush"; 4 -> "monoline"; 5 -> "marker"; 7 -> "calligraphy"; 8 -> "neon"; 9 -> "watercolor"; 10 -> "dots"; else -> "ballpoint" } }
+        else -> when (s.style) { 1 -> "fountain"; 2 -> "pencil"; 3 -> "brush"; 4 -> "monoline"; 5 -> "marker"; 7 -> "calligraphy"; 8 -> "neon"; 9 -> "watercolor"; 10 -> "dots"; 12 -> "crayon"; 13 -> "dash"; else -> "ballpoint" } }
 }
 
 private fun DrawScope.toolArt(s: Slot, dark: Boolean) {
@@ -254,8 +256,8 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
                 if (ink && onFav != null) Row(Modifier.bounceClick { onFav() }.clip(CircleShape).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(ArsIcons.Star, null, Modifier.size(15.dp)); Spacer(Modifier.width(6.dp)); Text("Guardar favorito", style = MaterialTheme.typography.labelMedium) }
             }
-            if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18)).background(if (Ars.dark) Color(0xFF1C1C1E) else Color.White).border(1.dp, Ars.GlassBorder, squircle(18))) {
-                StrokePreview(s, Modifier.fillMaxSize()) }
+            if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18)).background(Color(0xFFFCFCFA)).border(1.dp, Ars.GlassBorder, squircle(18))) {
+                StrokePreview(s, Modifier.fillMaxSize(), onPaper = true) }
             if (s.tool == Tool.PEN) Row(Modifier.padding(top = 8.dp).fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
                 Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
             }

@@ -289,8 +289,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
             if (askKey) {
                 var k by remember { mutableStateOf("") }
-                AlertDialog({ askKey = false }, title = { Text("Clave de API de Claude") },
-                    text = { Column { Text("Descarga la IA en el dispositivo desde Ajustes (sin internet, gratis) o pega una clave de API de Claude (console.anthropic.com)."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
+                AlertDialog({ askKey = false }, title = { Text("Clave de API") },
+                    text = { Column { Text("Descarga la IA en el dispositivo desde Ajustes (sin internet, gratis) o pega una clave de Gemini (gratis en aistudio.google.com/apikey) o de Claude."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
                     confirmButton = { TextButton({ prefs.edit().putString("aiKey", k.trim()).apply(); askKey = false; runAi() }) { Text("Guardar") } },
                     dismissButton = { TextButton({ askKey = false }) { Text("Cancelar") } })
             }
@@ -351,7 +351,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         } }, enabled = !converting) { Icon(ArsIcons.Text, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("A texto") }
                         TextButton({
                             val key = prefs.getString("aiKey", null)
-                            if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir escritura a fórmula, añade tu clave de API de Claude en Ajustes", android.widget.Toast.LENGTH_LONG).show()
+                            if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir escritura a fórmula hace falta una clave de Gemini (gratis) o de Claude: ponla en Ajustes o en la Vista LaTeX", android.widget.Toast.LENGTH_LONG).show()
                             else { converting = true; scope.launch {
                                 val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ai.latex(key, view.selectionPng()!!) } }
                                 converting = false
@@ -421,18 +421,26 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             wheelAt?.let { at ->
                 ToolWheel(at, slots, if (textTool) -1 else active, swatches, canUndo, canRedo,
                     onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
-                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
+                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo, onEdit = { editBar = true }) { wheelAt = null } }
             if (latexView) {
                 val pg = nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)]
                 var tex by remember(pg) { mutableStateOf(pg.tex) }
                 val sheet = remember(pg) { InkR.render(pg, 0.7f).asImageBitmap() }
-                LatexPane(nb.title, sheet, tex, texBusy, { tex = it; pg.tex = it; dirty++ }, onConvert = {
-                    val key = prefs.getString("aiKey", null)
-                    if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir la página añade tu clave de API de Claude en Ajustes. También puedes escribir el LaTeX a mano en «Código».", android.widget.Toast.LENGTH_LONG).show()
-                    else { texBusy = true; val bmp = InkR.render(pg, 0.85f); scope.launch {
+                var hasKey by remember { mutableStateOf(!prefs.getString("aiKey", null).isNullOrBlank()) }
+                fun convert() {
+                    val key = prefs.getString("aiKey", null) ?: return
+                    texBusy = true; val bmp = InkR.render(pg, 0.85f); scope.launch {
                         val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val o = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o); bmp.recycle(); Ai.latexDoc(key, o.toByteArray()) } }
                         texBusy = false
-                        r.onSuccess { tex = it; pg.tex = it; dirty++ }.onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() } } }
+                        r.onSuccess { tex = it; pg.tex = it; dirty++ }.onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() } }
+                }
+                LatexPane(nb.title, sheet, tex, texBusy, hasKey, onKey = { k -> prefs.edit().putString("aiKey", k).apply(); hasKey = true; convert() },
+                    onTranscribe = { texBusy = true; scope.launch {
+                        val l = com.arsnova.ink.Recognizer.lines(pg.strokes.toList()); texBusy = false
+                        if (l.isEmpty()) android.widget.Toast.makeText(ctx, com.arsnova.ink.Recognizer.error?.let { "Reconocimiento no disponible: $it" } ?: "No encontré texto en esta página", android.widget.Toast.LENGTH_LONG).show()
+                        else { val t = "\\section{" + nb.title + "}\n\n" + l.joinToString("\n\n") { it.text }; tex = t; pg.tex = t; pg.lines = l; dirty++ } } },
+                    onTex = { tex = it; pg.tex = it; dirty++ }, onConvert = {
+                    if (hasKey) convert()
                 }, onExport = { exportTex(tex) }) { latexView = false }
             }
             if (collapsed) {

@@ -75,7 +75,7 @@ object StylusKeys {
 fun ToolWheel(
     at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSlot: (Int) -> Unit, onColor: (Int) -> Unit, onPicker: () -> Unit, onWidth: (Float) -> Unit,
-    onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit,
+    onUndo: () -> Unit, onRedo: () -> Unit, onEdit: () -> Unit = {}, onDismiss: () -> Unit,
 ) {
     val d = LocalDensity.current; val view = LocalView.current; val scope = rememberCoroutineScope()
     val radius = 152.dp; val rp = with(d) { radius.toPx() }
@@ -203,6 +203,7 @@ fun ToolWheel(
                 transitionSpec = { (fadeIn(tween(140)) + slideInVertically { it / 2 }) togetherWith (fadeOut(tween(90)) + slideOutVertically { -it / 2 }) }, label = "lbl") { t ->
                 Text(t, Modifier.padding(horizontal = 14.dp, vertical = 12.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) } }
             Pill { IconButton({ tick(); onRedo() }, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") } }
+            Pill { IconButton({ tick(); onEdit(); close() }) { Icon(ArsIcons.Edit, "Editar la rueda") } }
         }
     }
 }

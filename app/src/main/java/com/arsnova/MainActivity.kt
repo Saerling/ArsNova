@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         val repo = Repo(applicationContext)
         com.arsnova.ink.Ink.bgDir = repo.dir
         com.arsnova.ink.Latex.init(this)
+        com.arsnova.ui.Look.load(getSharedPreferences("ars", MODE_PRIVATE))
         setContent {
             val prefs = remember { getSharedPreferences("ars", MODE_PRIVATE) }
             var theme by remember { mutableIntStateOf(prefs.getInt("theme", 0)) }

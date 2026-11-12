@@ -6,7 +6,30 @@ import java.net.URL
 
 /** IA opcional con la clave de API de Claude del usuario (se guarda solo en el dispositivo). */
 object Ai {
+    /** Las claves de Gemini (gratis en aistudio.google.com/apikey) empiezan por AIza; las de Claude por sk-ant. */
+    fun isGemini(key: String) = !key.trim().startsWith("sk-ant")
+
+    private fun gemini(key: String, prompt: String, png: ByteArray?): String {
+        val body = buildJsonObject { putJsonArray("contents") { addJsonObject { putJsonArray("parts") {
+            if (png != null) addJsonObject { putJsonObject("inline_data") { put("mime_type", "image/png"); put("data", android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP)) } }
+            addJsonObject { put("text", prompt) } } } } }.toString()
+        var last = "sin respuesta"
+        for (model in listOf("gemini-flash-latest", "gemini-2.5-flash")) {
+            val c = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 15000; c.readTimeout = 90000
+            c.setRequestProperty("content-type", "application/json"); c.setRequestProperty("x-goog-api-key", key.trim())
+            c.outputStream.use { it.write(body.toByteArray()) }
+            val ok = c.responseCode in 200..299
+            val txt = (if (ok) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
+            if (ok) return Json.parseToJsonElement(txt).jsonObject["candidates"]!!.jsonArray[0].jsonObject["content"]!!.jsonObject["parts"]!!.jsonArray.joinToString("") { it.jsonObject["text"]?.jsonPrimitive?.content ?: "" }
+            last = runCatching { Json.parseToJsonElement(txt).jsonObject["error"]!!.jsonObject["message"]!!.jsonPrimitive.content }.getOrDefault("HTTP ${c.responseCode}")
+            if (c.responseCode != 404) break   // 404 = ese nombre de modelo ya no existe: se prueba el siguiente
+        }
+        error(last)
+    }
+
     fun ask(key: String, prompt: String, png: ByteArray? = null): String {
+        if (isGemini(key)) return gemini(key, prompt, png)
         val body = buildJsonObject {
             put("model", "claude-haiku-5-5"); put("max_tokens", 4000)
             putJsonArray("messages") { addJsonObject { put("role", "user")

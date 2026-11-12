@@ -70,5 +70,7 @@ class ScreensTest {
     @Test fun latexPane() { val (r, id) = repo(); com.arsnova.ink.Latex.init(RuntimeEnvironment.getApplication())
         val sheet = com.arsnova.ink.Ink.render(r.load(id).pages[0], 0.5f).asImageBitmap()
         val tex = "\\documentclass{article}\n\\begin{document}\n\\section{Energía libre de Gibbs}\nPara un proceso a $ T $ y $ P $ constantes el criterio de espontaneidad es $ \\Delta G < 0 $, donde se cumple la relación fundamental entre entalpía y entropía del sistema.\n\\[ \\Delta G = \\Delta H - T\\Delta S \\]\n\\subsection{Equilibrio}\n\\begin{itemize}\n\\item En el equilibrio $ \\Delta G = 0 $\n\\item La constante es $ K = e^{-\\Delta G^{\\circ}/RT} $\n\\end{itemize}\n\\begin{align} \\ln K &= -\\frac{\\Delta H^{\\circ}}{RT} + \\frac{\\Delta S^{\\circ}}{R} \\end{align}\n\\end{document}"
-        rule.setContent { ArsTheme(2) { com.arsnova.ui.LatexPane("Termodinámica", sheet, tex, false, {}, {}, {}) {} } }; shot("latex-pane") }
+        rule.setContent { ArsTheme(2) { com.arsnova.ui.LatexPane("Termodinámica", sheet, tex, false, true, {}, {}, {}, {}, {}) {} } }; shot("latex-pane") }
+    @Test fun latexEmpty() { val (r, id) = repo(); val sheet = com.arsnova.ink.Ink.render(r.load(id).pages[0], 0.5f).asImageBitmap()
+        rule.setContent { ArsTheme(2) { com.arsnova.ui.LatexPane("Termodinámica", sheet, "", false, false, {}, {}, {}, {}, {}) {} } }; shot("latex-empty") }
 }

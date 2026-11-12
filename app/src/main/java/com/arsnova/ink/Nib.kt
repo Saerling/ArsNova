@@ -28,9 +28,10 @@ object Nib {
     private val pencil = Pen(0.62f, 0.55f, 1f, taperIn = 0.6f, tip = 0.6f)
     private val brush = Pen(0.06f, 0.94f, 1.5f, scale = 1.3f, taperIn = 2.5f, taperOut = 4f, tip = 0.04f, follow = 0.35f)
     private val mono = Pen(1f, 0f, 1f)
+    private val crayon = Pen(0.78f, 0.42f, 1f, taperIn = 0.3f, tip = 0.75f, follow = 0.4f)
     private val nibPen = Pen(0.8f, 0.25f, 1f)
 
-    fun pen(style: Int) = when (style) { 1 -> fountain; 2 -> pencil; 3 -> brush; 4 -> mono; 7 -> nibPen; else -> ballpoint }
+    fun pen(style: Int) = when (style) { 1 -> fountain; 2 -> pencil; 3 -> brush; 4 -> mono; 7 -> nibPen; 12 -> crayon; else -> ballpoint }
 
     /** Ángulo de la plumilla de caligrafía (−35°: trazos finos al subir, gruesos al bajar). */
     private val NIB_X = cos(Math.toRadians(-35.0)).toFloat()

@@ -44,9 +44,9 @@ class InkRenderTest {
         val sc = 2.2f; val rowH = 110f
         val b = Bitmap.createBitmap((1300 * sc).toInt(), (rowH * names.size * sc).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(b); c.drawColor(Color.WHITE); c.scale(sc, sc); Ink.darkPaper = false
-        names.forEachIndexed { st, _ ->
+        listOf(0, 1, 2, 12, 5, 3, 7, 4, 13, 9).forEachIndexed { row, st ->
             val w = if (st == 6) 26f else if (st == 3) 14f else 7f
-            samples(20f, rowH * st + rowH / 2).forEachIndexed { i, pts ->
+            samples(20f, rowH * row + rowH / 2).forEachIndexed { i, pts ->
                 Ink.drawStroke(c, Stroke(i.toLong(), if (st == 6) 0x66F2B705 else if (i % 2 == 0) 0xFF1D1B18.toInt() else 0xB02D5BD9.toInt(), w, st == 6, pts, style = st)) }
         }
         val out = File("build/ink").apply { mkdirs() }

@@ -119,7 +119,7 @@ fun LatexDoc(tex: String, modifier: Modifier = Modifier) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LatexPane(title: String, sheet: ImageBitmap, tex: String, busy: Boolean, onTex: (String) -> Unit, onConvert: () -> Unit, onExport: () -> Unit, onClose: () -> Unit) {
+fun LatexPane(title: String, sheet: ImageBitmap, tex: String, busy: Boolean, hasKey: Boolean, onKey: (String) -> Unit, onTranscribe: () -> Unit, onTex: (String) -> Unit, onConvert: () -> Unit, onExport: () -> Unit, onClose: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(3) }
     val clip = LocalClipboardManager.current
     androidx.activity.compose.BackHandler(onBack = onClose)
@@ -127,7 +127,23 @@ fun LatexPane(title: String, sheet: ImageBitmap, tex: String, busy: Boolean, onT
     @Composable fun Code(m: Modifier) = OutlinedTextField(tex, onTex, m, textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), shape = squircle(22),
         placeholder = { Text("\\section{Título}\nTexto con $ x^2 $ y ecuaciones:\n\\[ E = mc^2 \\]") },
         colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Ars.Card, focusedContainerColor = Ars.Card, unfocusedBorderColor = Color.Transparent, focusedBorderColor = Ars.Line))
-    @Composable fun Doc(m: Modifier) = Box(m.clip(squircle(22)).background(Ars.Card).verticalScroll(rememberScrollState())) { LatexDoc(tex, Modifier.fillMaxWidth().padding(22.dp)) }
+    @Composable fun Doc(m: Modifier) = Box(m.clip(squircle(22)).background(Ars.Card).verticalScroll(rememberScrollState())) {
+        if (tex.isNotBlank()) LatexDoc(tex, Modifier.fillMaxWidth().padding(22.dp))
+        else Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // primera vez: qué es esto y cómo ponerlo en marcha
+            Text("Pasa esta página a un documento", style = MaterialTheme.typography.titleLarge)
+            Text("A la izquierda está tu letra. Aquí aparecerá la misma página como documento LaTeX: texto limpio y ecuaciones bien compuestas, que luego puedes copiar o exportar a Overleaf o Word.", color = Ars.Muted)
+            if (hasKey) Button(onConvert, enabled = !busy) { Icon(ArsIcons.Sparkle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(if (busy) "Convirtiendo…" else "Convertir esta página") }
+            else {
+                var k by remember { mutableStateOf("") }
+                Text("Leer ecuaciones escritas a mano necesita un modelo con visión, que hoy solo funciona bien en la nube. Con una clave gratuita de Gemini (aistudio.google.com/apikey) queda listo:", color = Ars.Muted)
+                OutlinedTextField(k, { k = it }, Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Pega aquí tu clave de Gemini o de Claude") }, shape = squircle(16))
+                Button({ onKey(k.trim()) }, enabled = k.trim().length > 20) { Text("Guardar clave y convertir") }
+            }
+            TextButton(onTranscribe, enabled = !busy) { Icon(ArsIcons.Text, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Transcribir solo el texto, sin internet") }
+            Text("La transcripción sin internet lee palabras, no ecuaciones. También puedes escribir el LaTeX a mano en «Código».", style = MaterialTheme.typography.bodySmall, color = Ars.Muted)
+        }
+    }
     Column(Modifier.fillMaxSize().background(Ars.Bg).pointerInput(Unit) { detectTapGestures { } }.statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClose) { Icon(ArsIcons.Back, "Volver") }
