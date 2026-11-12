@@ -10,6 +10,10 @@ App de notas a mano para Android (tablet y teléfono), en la línea de Notabilit
 
 **Tinta:** cada lápiz tiene su carácter (bolígrafo, pluma, lápiz, pincel, monolínea, caligrafía de plumilla plana…) y lo que ves al escribir es lo que queda al levantar el lápiz. El lienzo se mantiene nítido con mucho zoom, la mano apoyada no estorba al lápiz, y un toque con dos dedos deshace (tres, rehace).
 
+**Fórmulas:** inserta LaTeX con vista previa en vivo (Insertar → Fórmula) o convierte tu escritura a fórmula desde la selección (necesita tu clave de API de Claude).
+
+**Rueda del lápiz:** el doble toque abre una rueda bajo la punta con herramientas, tipos de lápiz, colores, grosor, deshacer y rehacer.
+
 **Diseño:** estética monocroma de Mochy Music (Inter, esquinas continuas, pulsación con rebote) e iconos propios. Ver `CREDITOS.md`.
 
 **Desarrollo:** `gradle testDebugUnitTest` genera imágenes de los lápices e iconos (`app/build/ink`) y capturas de las pantallas (`app/build/shots`).

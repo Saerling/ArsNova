@@ -54,6 +54,7 @@ object ArsIcons {
         "Bold" to listOf("M7.5 5h5.5a3.5 3.5 0 0 1 0 7H7.5z", "M7.5 12h6.3a3.5 3.5 0 0 1 0 7H7.5z"),
         "Folder" to listOf("M4 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h7A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"),
         "Edit" to listOf("M4 20l1.2-4.6L16.4 4.2a1.7 1.7 0 0 1 2.4 0l1 1a1.7 1.7 0 0 1 0 2.4L8.6 18.8z", "M13 20h7"),
+        "Sigma" to listOf("M17.5 7V5H6.5l6 7-6 7h11v-2"),
         "Shapes" to listOf("M4.5 13.5h7v7h-7z", "M13 17a3.75 3.75 0 1 0 7.5 0a3.75 3.75 0 1 0-7.5 0z", "M12 3.5l4.2 7H7.8z"),
     )
 
@@ -77,5 +78,5 @@ object ArsIcons {
     val Play get() = this["Play"]; val Pause get() = this["Pause"]; val Sparkle get() = this["Sparkle"]; val Fit get() = this["Fit"]
     val Smile get() = this["Smile"]; val Copy get() = this["Copy"]; val AlignLeft get() = this["AlignLeft"]; val AlignCenter get() = this["AlignCenter"]
     val AlignRight get() = this["AlignRight"]; val Bold get() = this["Bold"]; val Folder get() = this["Folder"]; val Edit get() = this["Edit"]
-    val Shapes get() = this["Shapes"]
+    val Shapes get() = this["Shapes"]; val Sigma get() = this["Sigma"]
 }

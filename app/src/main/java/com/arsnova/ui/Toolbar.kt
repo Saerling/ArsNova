@@ -27,6 +27,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke as DStroke
 import androidx.compose.ui.unit.dp
 import com.arsnova.data.Tool
@@ -170,7 +171,7 @@ fun AppleToolbar(
         IconButton(onCollapse) { Icon(ArsIcons.Down, "Minimizar", tint = cs.outline,
             modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; else -> 0f } }) }
     }
-    val grip = @Composable { Box(handle.size(if (vertical) 48.dp else 26.dp, if (vertical) 26.dp else 48.dp), contentAlignment = Alignment.Center) {
+    val grip = @Composable { Box(handle.size(if (vertical) 52.dp else 36.dp, if (vertical) 34.dp else 52.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.size(if (vertical) 24.dp else 4.dp, if (vertical) 4.dp else 24.dp).clip(CircleShape).background(cs.outline.copy(alpha = 0.55f))) } }
     Surface(shape = shape, color = Ars.Glass, shadowElevation = 10.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
         if (vertical) Column(Modifier.padding(vertical = 6.dp).widthIn(max = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -180,55 +181,95 @@ fun AppleToolbar(
     }
 }
 
-/** Panel del lápiz estilo Samsung Notes: tipos de punta, grosor con burbuja, colores con check. */
+/** Tres grosores guardados por herramienta (toca para usar, mantén para guardar el actual). */
+object Widths {
+    fun defaults(t: Tool) = when (t) { Tool.HIGHLIGHTER -> listOf(18f, 28f, 44f); Tool.ERASER -> listOf(10f, 18f, 40f); Tool.TAPE -> listOf(24f, 44f, 72f); else -> listOf(2.5f, 5f, 9f) }
+    fun load(p: SharedPreferences, t: Tool): List<Float> = p.getString("wp${t.ordinal}", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 3 } ?: defaults(t)
+    fun save(p: SharedPreferences, t: Tool, l: List<Float>) = p.edit().putString("wp${t.ordinal}", l.joinToString(",")).apply()
+}
+
+private fun fmt(w: Float) = if (w % 1f == 0f) w.toInt().toString() else "%.1f".format(w)
+
+/** Trazo de muestra dibujado con el motor de tinta real: lo que ves es lo que escribirás. */
 @Composable
-fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onPicker: () -> Unit) {
+fun StrokePreview(s: Slot, modifier: Modifier = Modifier) {
+    val dark = Ars.dark
+    Canvas(modifier) {
+        val k = density; val w = size.width / k; val h = size.height / k; val n = 44
+        val pts = FloatArray(n * 3)
+        val m = (s.width * 0.6f).coerceAtMost(w * 0.2f) + 3f
+        for (i in 0 until n) { val t = i / (n - 1f)
+            pts[3 * i] = m + t * (w - 2 * m); pts[3 * i + 1] = h / 2 - kotlin.math.sin(t * 2 * Math.PI).toFloat() * h * 0.26f
+            pts[3 * i + 2] = 0.22f + 0.68f * kotlin.math.sin(t * Math.PI).toFloat() }
+        val style = when (s.tool) { Tool.HIGHLIGHTER -> 6; Tool.TAPE -> 11; else -> s.style }
+        val color = if (s.tool == Tool.HIGHLIGHTER) (s.color and 0x00FFFFFF) or 0x66000000 else s.color
+        drawContext.canvas.nativeCanvas.let { c -> c.save(); c.scale(k, k); com.arsnova.ink.Ink.darkPaper = dark
+            com.arsnova.ink.Ink.drawLive(c, pts, n * 3, s.width, style, color, if (s.tool == Tool.TAPE) s.style else 0); c.restore() }
+    }
+}
+
+/** Panel de la herramienta: muestra del trazo, tipos de punta, grosor con tamaños guardados, estabilización, opacidad y colores. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onPicker: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) {
+    val ink = s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER
+    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(bottom = 10.dp).width(372.dp)) {
         Column(Modifier.padding(18.dp, 14.dp)) {
-            if (s.tool == Tool.PEN) {
-                Row(Modifier.fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-                    Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
-                }
-                HorizontalDivider(color = cs.outline.copy(alpha = 0.25f))
-                Text(s.name, style = MaterialTheme.typography.labelLarge, color = cs.onSurface, modifier = Modifier.padding(top = 10.dp))
-            } else Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                if (s.tool != Tool.LASSO && s.tool != Tool.LASER) Text(fmt(s.width), style = MaterialTheme.typography.labelLarge, color = Ars.Muted)
+            }
+            if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18)).background(if (Ars.dark) Color(0xFF1C1C1E) else Color.White).border(1.dp, Ars.GlassBorder, squircle(18))) {
+                StrokePreview(s, Modifier.fillMaxSize()) }
+            if (s.tool == Tool.PEN) Row(Modifier.padding(top = 8.dp).fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+                Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
+            }
             if (s.tool == Tool.ERASER || s.tool == Tool.TAPE) {
                 val opts = if (s.tool == Tool.ERASER) listOf("Objeto", "Píxel") else listOf("Liso", "Puntos", "Cuadrícula", "Rayas")
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
                     opts.forEachIndexed { i, l -> SegmentedButton(s.style == i, { onChange(s.copy(style = i)) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
                 }
-                if (s.tool == Tool.TAPE) Text("Dibuja la cinta sobre lo que quieras ocultar; tócala con esta herramienta para mostrar u ocultar.", style = MaterialTheme.typography.bodySmall, color = cs.outline, modifier = Modifier.padding(top = 6.dp))
+                if (s.tool == Tool.TAPE) Text("Dibuja la cinta sobre lo que quieras ocultar; tócala con esta herramienta para mostrar u ocultar.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 6.dp))
             }
             if (s.tool != Tool.LASSO && s.tool != Tool.LASER) {
-                val range = when (s.tool) { Tool.HIGHLIGHTER -> 10f..70f; Tool.ERASER -> 6f..80f; Tool.TAPE -> 16f..120f; else -> 1f..40f }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                    IconButton({ onChange(s.copy(width = (s.width - 1).coerceIn(range))) }) { Text("—", color = cs.onSurface) }
-                    Slider(s.width, { onChange(s.copy(width = it)) }, Modifier.weight(1f), valueRange = range)
-                    IconButton({ onChange(s.copy(width = (s.width + 1).coerceIn(range))) }) { Icon(ArsIcons.Add, null) }
-                    Box(Modifier.size(36.dp).clip(CircleShape).background(cs.onSurface.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                        Text(s.width.toInt().toString(), style = MaterialTheme.typography.labelLarge, color = cs.onSurface) }
+                val range = when (s.tool) { Tool.HIGHLIGHTER -> 10f..70f; Tool.ERASER -> 6f..80f; Tool.TAPE -> 16f..120f; else -> 0.5f..40f }
+                val step = if (s.tool == Tool.PEN) 0.5f else 1f
+                var presets by remember(s.tool) { mutableStateOf(Widths.load(prefs, s.tool)) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    IconButton({ onChange(s.copy(width = (s.width - step).coerceIn(range))) }) { Text("–", color = cs.onSurface, style = MaterialTheme.typography.titleLarge) }
+                    // la mitad baja del control es más fina: los grosores pequeños son los que más se usan
+                    Slider(kotlin.math.sqrt((s.width - range.start) / (range.endInclusive - range.start)), { v -> onChange(s.copy(width = (range.start + v * v * (range.endInclusive - range.start)).let { kotlin.math.round(it / step) * step }.coerceIn(range))) }, Modifier.weight(1f))
+                    IconButton({ onChange(s.copy(width = (s.width + step).coerceIn(range))) }) { Icon(ArsIcons.Add, null) }
                 }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presets.forEachIndexed { i, w -> val on = kotlin.math.abs(w - s.width) < 0.05f
+                        Row(Modifier.weight(1f).height(40.dp).clip(squircle(14)).background(if (on) Ars.Text else Ars.PillFill)
+                            .combinedClickable(onClick = { onChange(s.copy(width = w)) }, onLongClick = { presets = presets.toMutableList().also { it[i] = s.width }; Widths.save(prefs, s.tool, presets) }),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Box(Modifier.size((w * (if (s.tool == Tool.PEN) 1.5f else 0.4f)).coerceIn(3f, 22f).dp).clip(CircleShape).background(if (on) Ars.Bg else Ars.Text))
+                            Spacer(Modifier.width(8.dp)); Text(fmt(w), style = MaterialTheme.typography.labelMedium, color = if (on) Ars.Bg else Ars.Text) } }
+                }
+                Text("Mantén pulsado un tamaño para guardar el grosor actual", style = MaterialTheme.typography.labelSmall, color = Ars.Muted, modifier = Modifier.padding(top = 4.dp))
             }
             if (s.tool == Tool.TAPE || s.tool == Tool.LASER) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                 listOf(0xFF7FB3D5, 0xFFF5B7B1, 0xFFA9DFBF, 0xFFF9E79F, 0xFFD7BDE2, 0xFFFF3B30, 0xFF1D1B18).map { it.toInt() }.forEach { c -> val on = c == s.color
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).clickable { onChange(s.copy(color = c)) }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(30.dp).bounceClick { onChange(s.copy(color = c)) }.clip(CircleShape).background(Color(c)), contentAlignment = Alignment.Center) {
                         if (on) Icon(ArsIcons.Check, null, Modifier.size(16.dp), tint = Color.White) } }
             }
-            if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER) {
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Estabilización", Modifier.weight(1f), color = cs.onSurface); Text("${(s.stab * 100).toInt()}%", color = cs.outline) }
+            if (ink) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) { Text("Estabilización", Modifier.weight(1f), color = cs.onSurface); Text("${(s.stab * 100).toInt()}%", color = Ars.Muted) }
                 Slider(s.stab, { onChange(s.copy(stab = it)) }, steps = 9)
                 val op = ((s.color ushr 24) / 255f)
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Opacidad", Modifier.weight(1f), color = cs.onSurface); Text("${(op * 100).toInt()}%", color = cs.outline) }
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("Opacidad", Modifier.weight(1f), color = cs.onSurface); Text("${(op * 100).toInt()}%", color = Ars.Muted) }
                 Slider(op, { onChange(s.copy(color = (s.color and 0x00FFFFFF) or ((it * 255).toInt().coerceIn(20, 255) shl 24))) }, valueRange = 0.1f..1f)
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Enderezar líneas", Modifier.weight(1f), color = cs.onSurface); Switch(shapesOn, onShapes) }
-                val quick = (swatches + listOf(0xFFFFFFFF, 0xFF8E8E93, 0xFFAF52DE, 0xFF5AC8FA).map { it.toInt() }).distinct().take(9)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("Enderezar líneas y figuras", Modifier.weight(1f), color = cs.onSurface); Switch(shapesOn, onShapes) }
+                val quick = (swatches + listOf(0xFFFFFFFF, 0xFF8E8E93, 0xFFAF52DE, 0xFF5AC8FA).map { it.toInt() }).distinct().take(8)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 10.dp)) {
                     quick.forEach { c -> val on = (c or 0xFF000000.toInt()) == (s.color or 0xFF000000.toInt())
-                        Box(Modifier.size(30.dp).clip(CircleShape).background(Color(c)).border(1.dp, Color.Black.copy(alpha = 0.12f), CircleShape)
-                            .clickable { onChange(s.copy(color = (c and 0x00FFFFFF) or (s.color and 0xFF000000.toInt()))) }, contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(30.dp).bounceClick { onChange(s.copy(color = (c and 0x00FFFFFF) or (s.color and 0xFF000000.toInt()))) }.clip(CircleShape).background(Color(c)).border(1.dp, Ars.GlassBorder, CircleShape), contentAlignment = Alignment.Center) {
                             if (on) Icon(ArsIcons.Check, null, Modifier.size(16.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) } }
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
+                    Box(Modifier.size(30.dp).bounceClick { onPicker() }.clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))))
                 }
             }
         }

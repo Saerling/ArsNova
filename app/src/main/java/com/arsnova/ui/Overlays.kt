@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -29,51 +31,6 @@ import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-
-/** Paleta junto al lápiz: disco de vidrio con lápices en el arco superior y colores en el inferior. */
-@Composable
-fun PencilArc(at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, onSlot: (Int) -> Unit, onColor: (Int) -> Unit, onDismiss: () -> Unit) {
-    val d = LocalDensity.current
-    var box by remember { mutableStateOf(IntSize.Zero) }
-    val disc = 300.dp; val rp = with(d) { (disc / 2).toPx() }
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 520f)) }
-    Box(Modifier.fillMaxSize().onSizeChanged { box = it }.pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
-        if (box.width == 0) return@Box
-        val cx = at.x.coerceIn(rp + 8f, maxOf(box.width - rp - 8f, rp + 8f)); val cy = at.y.coerceIn(rp + 8f, maxOf(box.height - rp - 8f, rp + 8f))
-        val cur = slots.getOrNull(active)
-        Surface(Modifier.offset { IntOffset((cx - rp).roundToInt(), (cy - rp).roundToInt()) }.size(disc)
-            .graphicsLayer { scaleX = 0.85f + 0.15f * appear.value; scaleY = scaleX; alpha = appear.value }.pointerInput(Unit) { detectTapGestures { } },
-            shape = CircleShape, color = Ars.Glass, shadowElevation = 18.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
-            Box(Modifier.fillMaxSize()) {
-                val n = slots.size
-                slots.forEachIndexed { i, s ->
-                    val ang = Math.toRadians(198.0 + 144.0 * i / (n - 1).coerceAtLeast(1))
-                    val it = remember { Animatable(0f) }
-                    LaunchedEffect(Unit) { delay(30L + i * 18L); it.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 500f)) }
-                    val rr = 104f
-                    Box(Modifier.align(Alignment.Center).offset((cos(ang) * rr).dp, (sin(ang) * rr + 6).dp).graphicsLayer { alpha = it.value; translationY = (1 - it.value) * 18f }) {
-                        if (i == active) Box(Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
-                        ToolArt(s, i == active, label = false) { onSlot(i) }
-                    }
-                }
-                swatches.forEachIndexed { i, c ->
-                    val ang = Math.toRadians(40.0 + 100.0 * i / 4)
-                    val it = remember { Animatable(0f) }
-                    LaunchedEffect(Unit) { delay(110L + i * 22L); it.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 520f)) }
-                    val on = cur != null && (cur.color or 0xFF000000.toInt()) == (c or 0xFF000000.toInt())
-                    Box(Modifier.align(Alignment.Center).offset((cos(ang) * 96).dp, (sin(ang) * 96).dp).graphicsLayer { scaleX = it.value; scaleY = it.value }
-                        .size(if (on) 34.dp else 28.dp).clip(CircleShape).background(Color(c)).border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.surface else Color.Black.copy(alpha = 0.1f), CircleShape)
-                        .clickable { onColor(c) })
-                }
-                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(22.dp).clip(CircleShape).background(Color(cur?.color ?: 0)).border(2.dp, MaterialTheme.colorScheme.surface, CircleShape))
-                    Text(cur?.name ?: "", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
-                }
-            }
-        }
-    }
-}
 
 private fun hsv(h: Float, s: Float, v: Float) = android.graphics.Color.HSVToColor(floatArrayOf(h, s, v))
 
@@ -197,4 +154,39 @@ fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin:
             }
         }
     }
+}
+
+/** Fórmula dibujada (centrada y ajustada al hueco). */
+@Composable
+fun LatexView(tex: String, modifier: Modifier = Modifier) {
+    val color = Ars.Text
+    val dr = remember(tex, color) { com.arsnova.ink.Latex.get(tex, 64f, android.graphics.Color.argb(255, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())) }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (dr == null) Text(if (tex.isBlank()) "Escribe la fórmula en LaTeX" else "Fórmula incompleta…", color = Ars.Muted, style = MaterialTheme.typography.bodySmall)
+        else Canvas(Modifier.fillMaxSize().padding(10.dp)) {
+            val k = minOf(size.width / dr.intrinsicWidth, size.height / dr.intrinsicHeight, 1.6f)
+            drawContext.canvas.nativeCanvas.let { c -> c.save(); c.translate((size.width - dr.intrinsicWidth * k) / 2, (size.height - dr.intrinsicHeight * k) / 2); c.scale(k, k)
+                dr.setBounds(0, 0, dr.intrinsicWidth, dr.intrinsicHeight); dr.draw(c); c.restore() }
+        }
+    }
+}
+
+/** Editor de fórmulas: LaTeX con vista previa en vivo y atajos de los símbolos más usados. */
+@Composable
+fun FormulaDialog(initial: String, onDismiss: () -> Unit, onDone: (String) -> Unit) {
+    var tex by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initial, androidx.compose.ui.text.TextRange(initial.length))) }
+    fun put(sn: String) { val a = tex.selection.min; val b = tex.selection.max; val t = tex.text.substring(0, a) + sn + tex.text.substring(b)
+        val cur = sn.indexOf("{}").let { if (it >= 0) a + it + 1 else a + sn.length }; tex = androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(cur)) }
+    AlertDialog(onDismiss, title = { Text("Fórmula") }, text = {
+        Column {
+            LatexView(tex.text, Modifier.fillMaxWidth().height(110.dp).clip(squircle(18)).background(Ars.CardHigh))
+            OutlinedTextField(tex, { tex = it }, Modifier.fillMaxWidth().padding(top = 10.dp), minLines = 2, placeholder = { Text("\\frac{a}{b} + \\sqrt{x}") },
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), shape = squircle(16))
+            Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("a/b" to "\\frac{}{}", "√" to "\\sqrt{}", "xⁿ" to "^{}", "xₙ" to "_{}", "∫" to "\\int_{}^{} ", "Σ" to "\\sum_{}^{} ", "∂" to "\\partial ", "Δ" to "\\Delta ", "α" to "\\alpha ", "β" to "\\beta ", "π" to "\\pi ",
+                    "∞" to "\\infty ", "·" to "\\cdot ", "→" to "\\rightarrow ", "⇌" to "\\rightleftharpoons ", "≤" to "\\leq ", "≥" to "\\geq ", "≈" to "\\approx ", "°" to "^{\\circ}").forEach { (l, sn) ->
+                    Box(Modifier.bounceClick { put(sn) }.clip(squircle(12)).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 8.dp)) { Text(l, style = MaterialTheme.typography.labelLarge) } }
+            }
+        }
+    }, confirmButton = { TextButton({ onDone(tex.text.trim()) }) { Text("Insertar") } }, dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
 }

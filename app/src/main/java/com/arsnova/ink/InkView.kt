@@ -203,6 +203,31 @@ class InkView(context: Context) : View(context) {
         cacheDirty = true; invalidate(); onChange()
     }
 
+    /** Sustituye la tinta seleccionada por una fórmula LaTeX del mismo tamaño y color. */
+    fun replaceSelectionWithFormula(tex: String) {
+        val p = page ?: return; if (sel.isEmpty() || tex.isBlank()) return
+        val b = RectF(selBounds); val col = sel[0].color or 0xFF000000.toInt(); deleteSelection()
+        val it = Item(System.nanoTime(), 2, b.left, b.top, b.width(), text = tex, size = (b.height() * 0.45f).coerceIn(28f, 96f), color = col)
+        p.items.add(it); push(Op.AddItem(it)); cacheDirty = true; invalidate(); onChange()
+    }
+
+    /** Imagen PNG de la tinta seleccionada (para reconocerla). */
+    fun selectionPng(): ByteArray? {
+        val p = page ?: return null; if (sel.isEmpty()) return null
+        val b = RectF(selBounds); b.inset(-24f, -24f); val k = (1000f / maxOf(b.width(), b.height())).coerceIn(0.5f, 3f)
+        val bmp = Bitmap.createBitmap((b.width() * k).toInt().coerceAtLeast(8), (b.height() * k).toInt().coerceAtLeast(8), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp); c.drawColor(p.paper); c.scale(k, k); c.translate(-b.left, -b.top); Ink.darkPaper = Ink.isDark(p.paper); sel.forEach { Ink.drawStroke(c, it) }
+        val o = java.io.ByteArrayOutputStream(); bmp.compress(Bitmap.CompressFormat.PNG, 100, o); bmp.recycle(); return o.toByteArray()
+    }
+
+    /** Elemento nuevo (texto o fórmula) colocado en el centro de lo que se ve. */
+    fun centerItem(kind: Int, size: Float, color: Int): Item {
+        activateAt(height / 2f); val c = toPage(width / 2f, height / 2f)
+        return Item(System.nanoTime(), kind, (c[0] - 160f).coerceIn(40f, Ink.PAGE_W - 360f), c[1] - 40f, 320f, size = size, color = color)
+    }
+
+    /** Curva de presión del lápiz: <1 más sensible (suave), >1 hay que apretar más (firme). */
+    var pressCurve = 1f
     var topInset = 0f
     fun addSticker(e: String) {
         activateAt(height / 2f); val p = page ?: return; val c = toPage(width / 2f, height / 2f)
@@ -480,7 +505,7 @@ class InkView(context: Context) : View(context) {
     }
 
     /** El lápiz da presión real; con el dedo se simula con la velocidad (rápido = fino). */
-    private fun pressure(p: Float) = if (isStylus) p else fingerP
+    private fun pressure(p: Float) = if (isStylus) (if (pressCurve == 1f) p else Math.pow(p.coerceIn(0f, 1f).toDouble(), pressCurve.toDouble()).toFloat()) else fingerP
 
     private fun moveDraw(e: MotionEvent) {
         val i = e.findPointerIndex(pid); if (i < 0) return
@@ -512,8 +537,14 @@ class InkView(context: Context) : View(context) {
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 rawX = x; rawY = y; rawP = pressure(pr)
                 if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
-                val k = 1f - stabilize * 0.88f
-                add(cur[curN - 3] + (x - cur[curN - 3]) * k, cur[curN - 2] + (y - cur[curN - 2]) * k, pressure(pr))
+                // Estabilizador de "cuerda": la tinta va atada al lápiz por una cuerda corta y solo avanza cuando se tensa,
+                // así el temblor se queda dentro de la cuerda y las curvas salen limpias sin que el trazo se quede atrás.
+                val bx = cur[curN - 3]; val by = cur[curN - 2]; var gx = x; var gy = y
+                val rope = stabilize * stabilize * dp(26f) / scale
+                if (rope > 0.01f) { val d = hypot(x - bx, y - by); if (d <= rope) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
+                    gx = bx + (x - bx) * (d - rope) / d; gy = by + (y - by) * (d - rope) / d }
+                val k = 1f - stabilize * 0.4f
+                add(bx + (gx - bx) * k, by + (gy - by) * k, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
             Mode.LASER -> laser.add(floatArrayOf(sx, sy, System.currentTimeMillis().toFloat() % 1e7f))
@@ -573,7 +604,7 @@ class InkView(context: Context) : View(context) {
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
                 // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
-                if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
+                if (!snapped && curStyle != 11 && stabilize < 0.55f && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
                 val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 Ink.darkPaper = Ink.isDark(p.paper)
@@ -605,7 +636,7 @@ class InkView(context: Context) : View(context) {
                 lasso.reset(); cacheDirty = true; notifyState()
             }
             Mode.TAP -> if (tool == Tool.TEXT && !tapMode) {
-                val hit = p.items.lastOrNull { it.kind == 0 && it.bounds().contains(lastX, lastY) }
+                val hit = p.items.lastOrNull { it.kind != 1 && it.bounds().contains(lastX, lastY) }
                 if (hit != null) onTextEdit(hit, false) else onTextEdit(Item(System.nanoTime(), 0, lastX, lastY, (Ink.PAGE_W - lastX - 60f).coerceAtLeast(240f), color = color), true)
             } else hitStroke(lastX, lastY)?.let(onStrokeTap)
             Mode.MOVE_SEL -> if (resizing) {

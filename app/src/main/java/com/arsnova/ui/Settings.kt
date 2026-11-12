@@ -34,6 +34,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     var stylus by remember { mutableStateOf(p.getBoolean("stylusOnly", false)) }
     var tapAction by remember { mutableIntStateOf(p.getInt("tapAction", 0)) }
     var shapes by remember { mutableStateOf(p.getBoolean("shapes", true)) }
+    var press by remember { mutableIntStateOf(p.getInt("press", 1)) }
     var gestures by remember { mutableStateOf(p.getBoolean("tapGestures", true)) }
     var auto by remember { mutableStateOf(p.getBoolean("autoUpdate", true)) }
     var tpl by remember { mutableIntStateOf(p.getInt("tpl", 1)) }
@@ -59,6 +60,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 Header("Lápiz"); Group {
                 Toggle("Solo lápiz", "Rechazo de palma: el dedo solo mueve y hace zoom", stylus) { stylus = it; p.edit().putBoolean("stylusOnly", it).apply() }
                 Toggle("Gestos con los dedos", "Toque con dos dedos para deshacer, con tres para rehacer", gestures) { gestures = it; p.edit().putBoolean("tapGestures", it).apply() }
+                Choice("Presión del lápiz", listOf("Suave", "Normal", "Firme"), press) { press = it; p.edit().putInt("press", it).apply() }
                 Choice("Doble toque del lápiz", listOf("Rueda", "Borrador", "Deshacer", "Lazo", "Nada"), tapAction) { tapAction = it; p.edit().putInt("tapAction", it).apply() }
                 Text("Compatible con Huawei M-Pencil (2.ª/3.ª gen/Pro), S Pen y lápices USI. Si tu lápiz usa otro gesto, configúralo desde ⋯ en el editor.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(horizontal = 20.dp)) } }

@@ -67,4 +67,12 @@ class InkRenderTest {
         }
         File("build/ink").apply { mkdirs() }.let { File(it, "icons.png").outputStream().use { o -> b.compress(Bitmap.CompressFormat.PNG, 100, o) } }
     }
+
+    @Test fun latex() {
+        val b = Bitmap.createBitmap(900, 260, Bitmap.Config.ARGB_8888); val c = Canvas(b); c.drawColor(Color.WHITE)
+        com.arsnova.ink.Latex.init(org.robolectric.RuntimeEnvironment.getApplication())
+        val d = ru.noties.jlatexmath.JLatexMathDrawable.builder("\\Delta G = \\Delta H - T\\Delta S \\qquad \\int_{0}^{\\infty} e^{-x^2}dx = \\frac{\\sqrt{\\pi}}{2}").textSize(48f).color(Color.BLACK).padding(0).build()
+        d.setBounds(0, 0, d.intrinsicWidth, d.intrinsicHeight); c.translate(20f, 60f); d.draw(c)
+        File("build/ink").apply { mkdirs() }.let { File(it, "latex.png").outputStream().use { o -> b.compress(Bitmap.CompressFormat.PNG, 100, o) } }
+    }
 }

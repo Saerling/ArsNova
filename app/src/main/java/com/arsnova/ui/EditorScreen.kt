@@ -33,6 +33,8 @@ import androidx.core.content.FileProvider
 import com.arsnova.data.*
 import com.arsnova.ink.Ink as InkR
 import com.arsnova.ink.InkView
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -152,7 +154,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         if (slot.tool == Tool.ERASER) { view.eraserRadius = slot.width; view.eraserPixel = slot.style == 1 }
         if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
-        view.tapGestures = prefs.getBoolean("tapGestures", true)
+        view.tapGestures = prefs.getBoolean("tapGestures", true); view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
     DisposableEffect(Unit) {
@@ -207,7 +209,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
             if (pages) PageGrid(nb, pageIdx, { view.scrollToPage(it); pages = false }, { nb.pages.add(nb.pages.last().next()); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; pages = false }) { pages = false }
-            editing?.let { (item, isNew) ->
+            editing?.takeIf { it.first.kind == 2 }?.let { (item, isNew) ->
+                FormulaDialog(item.text, { editing = null }) { t -> view.commitText(item, t, isNew); view.refresh(); dirty++; editing = null } }
+            editing?.takeIf { it.first.kind != 2 }?.let { (item, isNew) ->
                 var txt by remember(item) { mutableStateOf(item.text) }
                 var size by remember(item) { mutableFloatStateOf(item.size) }
                 var align by remember(item) { mutableIntStateOf(item.align) }
@@ -249,10 +253,11 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 }
             }
             wheelAt?.let { at ->
-                val dialSlots = Slots.penOrder.map { slots[0].copy(style = it) } + slots.drop(1)
-                val dialActive = if (active == 0) Slots.penOrder.indexOf(slots[0].style).coerceAtLeast(0) else Slots.penOrder.size - 1 + active
-                PencilArc(at, dialSlots, dialActive, swatches, { j -> textTool = false; if (j < Slots.penOrder.size) { active = 0; updSlot(slots[0].copy(style = Slots.penOrder[j])) } else { active = j - Slots.penOrder.size + 1 }
-                    prefs.edit().putInt("slot", active).apply(); wheelAt = null }, { setColor(it); wheelAt = null }) { wheelAt = null } }
+                ToolWheel(at, slots, if (textTool) -1 else active, swatches, Widths.load(prefs, slot.tool), canUndo, canRedo,
+                    onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
+                    onPenStyle = { st -> textTool = false; val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; showSettings = false
+                        slots = slots.toMutableList().also { it[k] = it[k].copy(style = st) }; Slots.save(prefs, slots); prefs.edit().putInt("slot", k).apply() },
+                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { updSlot(slot.copy(width = it)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
                 { palMenu = false; lines = true }, { palMenu = false; showSettings = true },
@@ -280,7 +285,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
-                    ToolSettings(slot, swatches, shapesOn, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot) { picker = -1 }
+                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot) { picker = -1 }
                 }
                 AnimatedVisibility(hasSel, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 520f), 0.85f),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f)) {
@@ -292,24 +297,41 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             if (t.isBlank()) android.widget.Toast.makeText(ctx, "No se reconoció texto (la primera vez se descarga el modelo, ~20 MB)", android.widget.Toast.LENGTH_LONG).show()
                             else view.replaceSelectionWithText(t)
                         } }, enabled = !converting) { Icon(ArsIcons.Text, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("A texto") }
+                        TextButton({
+                            val key = prefs.getString("aiKey", null)
+                            if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir escritura a fórmula, añade tu clave de API de Claude en Ajustes", android.widget.Toast.LENGTH_LONG).show()
+                            else { converting = true; scope.launch {
+                                val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ai.latex(key, view.selectionPng()!!) } }
+                                converting = false
+                                r.onSuccess { view.replaceSelectionWithFormula(it) }.onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() } } }
+                        }, enabled = !converting) { Icon(ArsIcons.Sigma, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("A fórmula") }
                         TextButton(view::deleteSelection) { Icon(ArsIcons.Trash, null, Modifier.size(18.dp), tint = Brand); Spacer(Modifier.width(6.dp)); Text("Eliminar", color = Brand) }
                     }
                 }
             }
             val tbAlpha by androidx.compose.animation.core.animateFloatAsState(1f, label = "tb")
             val mini = collapsed
+            // Mover la barra: se arrastra del tirador y se suelta cerca del borde donde se quiere (izquierda, derecha o abajo).
+            // Decide la posición real del dedo, no la de la barra, así que siempre responde.
             var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
-            val dens = androidx.compose.ui.platform.LocalDensity.current
-            val handle = Modifier.pointerInput(dock) {
-                detectDragGestures(onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero }, onDragEnd = {
-                    val base = when (dock) { 1 -> with(dens) { 40.dp.toPx() }; -1 -> boxW - with(dens) { 40.dp.toPx() }; else -> boxW / 2f }
-                    val x = base + drag.x
-                    dock = when { x < boxW * 0.25f -> 1; x > boxW * 0.75f -> -1; else -> 0 }
-                    prefs.edit().putInt("dock", dock).apply(); drag = androidx.compose.ui.geometry.Offset.Zero
-                }) { c, d -> c.consume(); drag += d }
+            var gripAt by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+            var finger by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+            fun zone(f: androidx.compose.ui.geometry.Offset) = when { f.x < boxW * 0.18f -> 1; f.x > boxW * 0.82f -> -1; else -> 0 }
+            val handle = Modifier.onGloballyPositioned { gripAt = it.positionInRoot() }.pointerInput(Unit) {
+                detectDragGestures(onDragStart = { finger = gripAt + it; showSettings = false }, onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero; finger = null }, onDragEnd = {
+                    finger?.let { f -> val z = zone(f); if (z != dock) { dock = z; prefs.edit().putInt("dock", z).apply(); view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } }
+                    drag = androidx.compose.ui.geometry.Offset.Zero; finger = null
+                }) { c, d -> c.consume(); drag += d; finger = gripAt + c.position }
             }
+            val target = finger?.let { zone(it) }
+            AnimatedVisibility(target != null && target != dock, Modifier.align(when (target) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter }).navigationBarsPadding().padding(12.dp),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.9f), exit = androidx.compose.animation.fadeOut()) {
+                Box(Modifier.size(if (target == 0) 420.dp else 60.dp, if (target == 0) 60.dp else 420.dp).clip(squircle(28)).background(Ars.Text.copy(alpha = 0.10f)).border(1.5.dp, Ars.Text.copy(alpha = 0.35f), squircle(28)))
+            }
+            val lift by androidx.compose.animation.core.animateFloatAsState(if (finger != null) 1.04f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f), label = "lift")
             Box(Modifier.align(when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter })
                 .navigationBarsPadding().padding(12.dp).offset { androidx.compose.ui.unit.IntOffset(drag.x.toInt(), drag.y.toInt()) }
+                .graphicsLayer { scaleX = lift; scaleY = lift }
                 .graphicsLayer { alpha = tbAlpha }) {
                 androidx.compose.animation.AnimatedContent(mini,
                     transitionSpec = { (androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.6f)) togetherWith (androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.6f)) using androidx.compose.animation.SizeTransform(clip = false) },
@@ -323,6 +345,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     insertMenu = { open, close ->
                         DropdownMenu(open, close) {
                             DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(ArsIcons.Text, null) })
+                            DropdownMenuItem({ Text("Fórmula (LaTeX)") }, { close(); editing = view.centerItem(2, 46f, if (slot.tool == Tool.PEN) slot.color or 0xFF000000.toInt() else 0xFF1D1B18.toInt()) to true }, leadingIcon = { Icon(ArsIcons.Sigma, null) })
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(ArsIcons.Image, null) })
                             DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++ }, leadingIcon = { Icon(ArsIcons.PageAdd, null) })
                             DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(ArsIcons.Grid, null) })

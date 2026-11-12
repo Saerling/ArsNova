@@ -7,6 +7,8 @@ ArsNova se distribuye bajo la licencia GPL-3.0 (ver `LICENSE`).
   continuas, interruptor y aparición escalonada), además de la paleta monocroma y la tipografía.
 - **BitChord** — github.com/kushagrasinghx/BitChord (GPL-3.0). La ventana de actualización sigue la forma de su
   `UpdateAvailableDialog`.
+- **JLaTeXMath** — github.com/opencollab/jlatexmath (GPL-2.0 o posterior, con excepción de enlace) mediante
+  `ru.noties:jlatexmath-android` (Apache-2.0): dibuja las fórmulas LaTeX.
 - **Inter** — rsms.me/inter (SIL Open Font License 1.1).
 
 El motor de tinta (`ink/Nib.kt`, `ink/Ink.kt`, `ink/InkView.kt`) y los iconos (`ui/ArsIcons.kt`) son código propio.

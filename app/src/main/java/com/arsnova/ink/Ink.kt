@@ -162,6 +162,10 @@ object Ink {
     private val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG)
     fun drawItem(c: Canvas, it: com.arsnova.data.Item) {
         if (it.kind == 1) { it.file?.let { f -> bg(f) }?.let { b -> dst.set(it.x, it.y, it.x + it.w, it.y + it.h); c.drawBitmap(b, null, dst, bmpPaint) }; return }
+        if (it.kind == 2) {
+            val d = synchronized(Latex) { Latex.get(it.text, it.size, it.color) }
+            if (d != null) { it.w = d.intrinsicWidth.toFloat(); it.h = d.intrinsicHeight.toFloat(); c.save(); c.translate(it.x, it.y); d.setBounds(0, 0, d.intrinsicWidth, d.intrinsicHeight); synchronized(Latex) { d.draw(c) }; c.restore(); return }
+        }
         tp.textSize = it.size; tp.color = it.color; tp.typeface = if (it.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         val al = when (it.align) { 1 -> android.text.Layout.Alignment.ALIGN_CENTER; 2 -> android.text.Layout.Alignment.ALIGN_OPPOSITE; else -> android.text.Layout.Alignment.ALIGN_NORMAL }
         val l = android.text.StaticLayout.Builder.obtain(it.text, 0, it.text.length, tp, it.w.toInt().coerceAtLeast(10)).setAlignment(al).build()
