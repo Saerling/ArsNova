@@ -12,7 +12,9 @@ App de notas a mano para Android (tablet y teléfono), en la línea de Notabilit
 
 **Fórmulas:** inserta LaTeX con vista previa en vivo (Insertar → Fórmula) o convierte tu escritura a fórmula desde la selección (necesita tu clave de API de Claude).
 
-**Rueda del lápiz:** el doble toque abre una rueda bajo la punta con herramientas, tipos de lápiz, colores, grosor, deshacer y rehacer.
+**Rueda del lápiz:** el doble toque abre un dial bajo la punta: se gira para cambiar de herramienta o de grosor, con colores, deshacer y rehacer.
+
+**Barra:** estilo Apple (cada lápiz es su propio botón), editable, acoplable a los cuatro bordes y, minimizada, libre. Favoritos de lápiz, ajuste fino de grosor/estabilización/opacidad, mantener para borrar, zooms guardados y página a LaTeX.
 
 **Diseño:** estética monocroma de Mochy Music (Inter, esquinas continuas, pulsación con rebote) e iconos propios. Ver `CREDITOS.md`.
 

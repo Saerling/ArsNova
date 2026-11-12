@@ -8,7 +8,7 @@ import java.net.URL
 object Ai {
     fun ask(key: String, prompt: String, png: ByteArray? = null): String {
         val body = buildJsonObject {
-            put("model", "claude-haiku-5-5"); put("max_tokens", 1500)
+            put("model", "claude-haiku-5-5"); put("max_tokens", 4000)
             putJsonArray("messages") { addJsonObject { put("role", "user")
                 if (png == null) put("content", prompt) else putJsonArray("content") {
                     addJsonObject { put("type", "image"); putJsonObject("source") { put("type", "base64"); put("media_type", "image/png"); put("data", android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP)) } }
@@ -28,6 +28,10 @@ object Ai {
     /** Escritura a mano (imagen) → LaTeX. */
     fun latex(key: String, png: ByteArray): String = ask(key, "Transcribe la expresión matemática manuscrita de la imagen a LaTeX. Responde solo con el código LaTeX, sin signos de dólar, sin explicaciones y sin bloques de código.", png)
         .trim().removePrefix("```latex").removePrefix("```").removeSuffix("```").trim().trim('$').trim()
+
+    /** Página de apuntes (imagen) → documento LaTeX completo. */
+    fun latexDoc(key: String, png: ByteArray): String = ask(key, "Convierte esta página de apuntes manuscritos en un documento LaTeX completo y compilable (article, con amsmath): conserva títulos, texto y ecuaciones en su orden. Responde solo con el código LaTeX, sin bloques de código.", png)
+        .trim().removePrefix("```latex").removePrefix("```").removeSuffix("```").trim()
 
     fun studyPrompt(text: String) = """Eres un asistente de estudio. A partir de estas notas manuscritas (transcritas, pueden tener errores de reconocimiento), escribe en español:
 1) Un resumen breve con las ideas clave en viñetas.

@@ -226,6 +226,28 @@ class InkView(context: Context) : View(context) {
         return Item(System.nanoTime(), kind, (c[0] - 160f).coerceIn(40f, Ink.PAGE_W - 360f), c[1] - 40f, 320f, size = size, color = color)
     }
 
+    /** Mantener la punta quieta ~medio segundo: ese trazo se vuelve borrador hasta levantar el lápiz. */
+    var holdErase = true
+    private var downSX = 0f; private var downSY = 0f
+    private val holdToErase = Runnable {
+        if (holdErase && mode == Mode.DRAW && isStylus && !snapped && curStyle != 11 && page != null) {
+            removeCallbacks(snap); curN = 0; predN = 0; mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = downSX; ey = downSY
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); val q = toPage(ex, ey); eraseAt(q[0], q[1]); invalidate()
+        }
+    }
+
+    // ---- zoom: porcentaje respecto al ancho ajustado, zooms guardados y bloqueo
+    private var fitScale = 1f; private var zoomSent = -1
+    var onZoom: (Int) -> Unit = {}
+    var zoomLock = false
+    private fun notifyZoom() { val z = Math.round(scale / fitScale * 100f); if (z != zoomSent) { zoomSent = z; post { onZoom(z) } } }
+    fun zoomTo(pct: Int) {
+        val from = scale; val to = (fitScale * pct / 100f).coerceIn(0.2f, 8f); val cx = width / 2f; val cy = height / 2f
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply { duration = 320; interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener { val ns = from + (to - from) * (it.animatedValue as Float); val f = ns / scale
+                tx = cx - (cx - tx) * f; ty = cy - (cy - ty) * f; scale = ns; animating = it.animatedFraction < 1f; clamp(); updateMatrix(); invalidate(); notifyZoom() }; start() }
+    }
+
     /** Curva de presión del lápiz: <1 más sensible (suave), >1 hay que apretar más (firme). */
     var pressCurve = 1f
     var topInset = 0f
@@ -297,7 +319,7 @@ class InkView(context: Context) : View(context) {
         val m = dp(16f); val cy = if (hadFit) (height / 2f - ty) / scale else -1f
         scale = ((width - 2 * m) / Ink.PAGE_W).coerceAtMost((height * 1.6f) / Ink.PAGE_H).coerceAtLeast(0.1f)
         tx = (width - Ink.PAGE_W * scale) / 2; ty = if (cy >= 0) height / 2f - cy * scale else m + topInset
-        clamp(); updateMatrix(); fitted = true; hadFit = true
+        fitScale = scale; clamp(); updateMatrix(); fitted = true; hadFit = true; notifyZoom()
     }
     private fun clamp() {
         val m = dp(16f); val w = Ink.PAGE_W * scale
@@ -489,6 +511,7 @@ class InkView(context: Context) : View(context) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
                 rawX = x; rawY = y; rawP = pressure(e.getPressure(i)); add(x, y, rawP); sigX = sx; sigY = sy; postSnap(); onInking(true)
+                downSX = sx; downSY = sy; removeCallbacks(holdToErase); if (isStylus && holdErase && !eraserBtn) postDelayed(holdToErase, 480)
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
             Tool.TAPE -> { val hitT = hitStroke(x, y)?.takeIf { it.style == 11 }
@@ -532,6 +555,7 @@ class InkView(context: Context) : View(context) {
         val q = toPage(sx, sy); val x = q[0]; val y = q[1]
         when (mode) {
             Mode.DRAW -> {
+                if (hypot(sx - downSX, sy - downSY) > dp(5f)) removeCallbacks(holdToErase)
                 if (curStyle == 11) { curN = 3; add(x, y, 0.5f); return }
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
@@ -540,10 +564,10 @@ class InkView(context: Context) : View(context) {
                 // Estabilizador de "cuerda": la tinta va atada al lápiz por una cuerda corta y solo avanza cuando se tensa,
                 // así el temblor se queda dentro de la cuerda y las curvas salen limpias sin que el trazo se quede atrás.
                 val bx = cur[curN - 3]; val by = cur[curN - 2]; var gx = x; var gy = y
-                val rope = stabilize * stabilize * dp(26f) / scale
+                val rope = Math.pow(stabilize.toDouble(), 1.5).toFloat() * dp(9f) / scale
                 if (rope > 0.01f) { val d = hypot(x - bx, y - by); if (d <= rope) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
                     gx = bx + (x - bx) * (d - rope) / d; gy = by + (y - by) * (d - rope) / d }
-                val k = 1f - stabilize * 0.4f
+                val k = 1f - stabilize * 0.35f
                 add(bx + (gx - bx) * k, by + (gy - by) * k, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
@@ -599,12 +623,12 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun endDraw() {
-        removeCallbacks(snap); predN = 0; onInking(false)
+        removeCallbacks(holdToErase); removeCallbacks(snap); predN = 0; onInking(false)
         val p = page ?: return
         when (mode) {
             Mode.DRAW -> if (curN >= 3) {
                 // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
-                if (!snapped && curStyle != 11 && stabilize < 0.55f && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
+                if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
                 val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 Ink.darkPaper = Ink.isDark(p.paper)
@@ -666,7 +690,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun cancelDraw() {
-        removeCallbacks(snap); onInking(false)
+        removeCallbacks(holdToErase); removeCallbacks(snap); onInking(false)
         if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
         curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; ex = -1f; invalidate()
     }
@@ -712,13 +736,13 @@ class InkView(context: Context) : View(context) {
         tx += fx - lfx; ty += fy - lfy
         if (n >= 2) {
             var d = 0f; for (i in 0 until n) d += hypot(e.getX(i) - fx, e.getY(i) - fy); val span = d / n
-            if (lspan > 8f) {
+            if (lspan > 8f && !zoomLock) {
                 val ns = (scale * span / lspan).coerceIn(0.2f, 8f); val f = ns / scale
                 tx = fx - (fx - tx) * f; ty = fy - (fy - ty) * f; scale = ns
             }
             lspan = span
         }
-        lfx = fx; lfy = fy; clamp(); updateMatrix(); invalidate()
+        lfx = fx; lfy = fy; clamp(); updateMatrix(); invalidate(); notifyZoom()
     }
     private fun endNav(fling: Boolean = true) {
         if (fling) vt?.let { v -> v.computeCurrentVelocity(1000); val vx = v.xVelocity; val vy = v.yVelocity

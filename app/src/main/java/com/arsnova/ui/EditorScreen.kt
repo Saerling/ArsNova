@@ -78,18 +78,28 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
 
     val deskColor = Ars.Desk
     var slots by remember { mutableStateOf(Slots.load(prefs)) }
-    var active by remember { mutableIntStateOf(prefs.getInt("slot", 0).coerceIn(0, Slots.defaults.size - 1)) }
+    var active by remember { mutableIntStateOf(prefs.getInt("slot", 0).coerceIn(0, slots.size - 1)) }
     var swatches by remember { mutableStateOf(Slots.loadSwatches(prefs)) }
     var textTool by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var picker by remember { mutableStateOf<Int?>(null) } // -1 = color actual, 0..4 = editar muestra
     var shapesOn by remember { mutableStateOf(prefs.getBoolean("shapes", true)) }
-    val slot = slots[active]
+    val slot = slots[active.coerceIn(0, slots.size - 1)]
+    var lastPen by remember { mutableIntStateOf(slots.indexOfFirst { it.tool == Tool.PEN }.coerceAtLeast(0)) }
+    if (slot.tool == Tool.PEN && lastPen != active) lastPen = active
+    var grouped by remember { mutableStateOf(prefs.getBoolean("grouped", false)) }
+    var barArt by remember { mutableStateOf(prefs.getBoolean("barArt", true)) }
+    var editBar by remember { mutableStateOf(false) }
+    var zoom by remember { mutableIntStateOf(100) }
+    var zoomMenu by remember { mutableStateOf(false) }
+    var zoomLock by remember { mutableStateOf(prefs.getBoolean("zoomLock", false)) }
+    var zooms by remember { mutableStateOf(prefs.getString("zooms", "")!!.split(",").mapNotNull { it.toIntOrNull() }) }
+    var boxH by remember { mutableFloatStateOf(1f) }
     val tool = if (textTool) Tool.TEXT else slot.tool
     val color = slot.color
     fun updSlot(s: Slot) { slots = slots.toMutableList().also { it[active] = s }; Slots.save(prefs, slots) }
     fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings && slots[i].tool != Tool.LASSO && slots[i].tool != Tool.LASER else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
-    fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; updSlot(slots[k].copy(color = c)) }; if (hasSel) view.recolorSelection(c) }
+    fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = lastPen.coerceIn(0, slots.size - 1); if (slots[k].tool == Tool.PEN) { active = k; updSlot(slots[k].copy(color = c)) } }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
     var palMenu by remember { mutableStateOf(false) }
@@ -106,12 +116,27 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         val now = System.currentTimeMillis(); if (now - lastTap < 450) return; lastTap = now
         when (prefs.getInt("tapAction", 0)) {
             0 -> wheelAt = if (wheelAt == null) androidx.compose.ui.geometry.Offset(if (view.lastPenX >= 0) view.lastPenX else view.width / 2f, if (view.lastPenY >= 0) view.lastPenY else view.height / 2f) else null
-            1 -> { val er = slots.indexOfFirst { it.tool == Tool.ERASER }; if (active == er) active = prevSlot else { prevSlot = active; active = er } }
+            1 -> { val er = slots.indexOfFirst { it.tool == Tool.ERASER }; if (er < 0) return; if (active == er) active = prevSlot else { prevSlot = active; active = er } }
             2 -> view.undo()
-            3 -> { val la = slots.indexOfFirst { it.tool == Tool.LASSO }; if (active == la) active = prevSlot else { prevSlot = active; active = la } }
+            3 -> { val la = slots.indexOfFirst { it.tool == Tool.LASSO }; if (la < 0) return; if (active == la) active = prevSlot else { prevSlot = active; active = la } }
         }
     }
-    fun save() = repo.saveAsync(nb, InkR.render(nb.pages[0], 0.25f))
+    // La miniatura se redibuja al salir (y mientras la primera hoja sea ligera); guardar ya no frena la escritura.
+    fun save(thumb: Boolean = nb.pages[0].strokes.size < 300) = repo.saveAsync(nb, if (thumb) InkR.render(nb.pages[0], 0.25f) else null)
+    fun pageToLatex() {
+        val key = prefs.getString("aiKey", null)
+        if (key.isNullOrBlank()) { android.widget.Toast.makeText(ctx, "Añade tu clave de API de Claude en Ajustes para convertir a LaTeX", android.widget.Toast.LENGTH_LONG).show(); return }
+        android.widget.Toast.makeText(ctx, "Convirtiendo la página a LaTeX…", android.widget.Toast.LENGTH_SHORT).show()
+        val bmp = InkR.render(nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)], 0.85f)
+        scope.launch {
+            val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val o = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o); bmp.recycle()
+                val tex = Ai.latexDoc(key, o.toByteArray())
+                File(File(ctx.cacheDir, "exports").apply { mkdirs() }, nb.title.replace(Regex("[^\\w\\- ]"), "_") + ".tex").apply { writeText(tex) } } }
+            r.onSuccess { f -> ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(ctx, "com.arsnova.files", f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Exportar LaTeX")) }
+                .onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() }
+        }
+    }
     var indexed by remember { mutableIntStateOf(-1) }
     var pages by remember { mutableStateOf(false) }
     var converting by remember { mutableStateOf(false) }
@@ -131,7 +156,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         }
     }
     // Indexa el texto manuscrito de la página actual en segundo plano (búsqueda).
-    LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages[pageIdx]; val t = com.arsnova.ink.Recognizer.recognize(p.strokes.toList()); if (t != p.ocr) { p.ocr = t; save() } }
+    LaunchedEffect(dirty, pageIdx) { delay(4000); val p = nb.pages.getOrNull(pageIdx) ?: return@LaunchedEffect; val t = com.arsnova.ink.Recognizer.recognize(p.strokes.toList()); if (t != p.ocr) { p.ocr = t; save() } }
 
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
@@ -154,7 +179,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         if (slot.tool == Tool.ERASER) { view.eraserRadius = slot.width; view.eraserPixel = slot.style == 1 }
         if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
-        view.tapGestures = prefs.getBoolean("tapGestures", true); view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
+        view.tapGestures = prefs.getBoolean("tapGestures", true); view.holdErase = prefs.getBoolean("holdErase", true); view.zoomLock = zoomLock; view.onZoom = { zoom = it }; view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
     DisposableEffect(Unit) {
@@ -168,7 +193,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
         }
         onDispose { StylusKeys.handler = null; audio.release()
- save(); prefs.edit().putBoolean("stylusOnly", stylusOnly).apply() } }
+ save(true); prefs.edit().putBoolean("stylusOnly", stylusOnly).apply() } }
 
     Scaffold(
         topBar = {
@@ -179,6 +204,15 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
                         Icon(if (audio.recording) ArsIcons.Stop else ArsIcons.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
                     if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(ArsIcons.Headphones, "Reproducir") }
+                    Box { TextButton({ zoomMenu = true }) { Text("$zoom %", style = MaterialTheme.typography.labelLarge) }
+                        DropdownMenu(zoomMenu, { zoomMenu = false }) {
+                            DropdownMenuItem({ Text("Ajustar al ancho") }, { view.zoomTo(100); zoomMenu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
+                            (listOf(150, 200, 300) + zooms).distinct().sorted().forEach { z ->
+                                DropdownMenuItem({ Text("$z %") }, { view.zoomTo(z); zoomMenu = false },
+                                    trailingIcon = if (z in zooms) { { IconButton({ zooms = zooms - z; prefs.edit().putString("zooms", zooms.joinToString(",")).apply() }) { Icon(ArsIcons.Close, "Quitar", Modifier.size(16.dp)) } } } else null) }
+                            DropdownMenuItem({ Text("Guardar zoom actual ($zoom %)") }, { zooms = (zooms + zoom).distinct(); prefs.edit().putString("zooms", zooms.joinToString(",")).apply(); zoomMenu = false }, leadingIcon = { Icon(ArsIcons.Star, null) })
+                            DropdownMenuItem({ Text("Bloquear zoom") }, { zoomLock = !zoomLock; prefs.edit().putBoolean("zoomLock", zoomLock).apply() }, trailingIcon = { Checkbox(zoomLock, null) })
+                        } }
                     TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
                     IconButton({ menu = true }) { Icon(ArsIcons.MoreV, "Más") }
                     DropdownMenu(menu, { menu = false }) {
@@ -197,6 +231,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             leadingIcon = { Icon(ArsIcons.Edit, null) })
                         DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
                         DropdownMenuItem({ Text("Resumen y tarjetas (IA)") }, { menu = false; runAi() }, leadingIcon = { Icon(ArsIcons.Sparkle, null) })
+                        DropdownMenuItem({ Text("Página a LaTeX (IA)") }, { menu = false; pageToLatex() }, leadingIcon = { Icon(ArsIcons.Sigma, null) })
                         DropdownMenuItem({ Text("Exportar PDF") }, { exportPdf(ctx, nb); menu = false }, leadingIcon = { Icon(ArsIcons.Export, null) })
                     }
                 } },
@@ -206,7 +241,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     ) { pad ->
         val topPx = with(androidx.compose.ui.platform.LocalDensity.current) { pad.calculateTopPadding().toPx() }
         SideEffect { if (view.topInset != topPx) { view.topInset = topPx; view.fit() } }
-        Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat() }) {
+        val topPad = pad.calculateTopPadding()
+        Box(Modifier.fillMaxSize().onSizeChanged { boxW = it.width.toFloat(); boxH = it.height.toFloat() }) {
             AndroidView({ view }, Modifier.fillMaxSize())
             if (pages) PageGrid(nb, pageIdx, { view.scrollToPage(it); pages = false }, { nb.pages.add(nb.pages.last().next()); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; pages = false }) { pages = false }
             editing?.takeIf { it.first.kind == 2 }?.let { (item, isNew) ->
@@ -253,16 +289,15 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 }
             }
             wheelAt?.let { at ->
-                ToolWheel(at, slots, if (textTool) -1 else active, swatches, Widths.load(prefs, slot.tool), canUndo, canRedo,
+                ToolWheel(at, slots, if (textTool) -1 else active, swatches, canUndo, canRedo,
                     onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
-                    onPenStyle = { st -> textTool = false; val k = slots.indexOfFirst { it.tool == Tool.PEN }; active = k; showSettings = false
-                        slots = slots.toMutableList().also { it[k] = it[k].copy(style = st) }; Slots.save(prefs, slots); prefs.edit().putInt("slot", k).apply() },
-                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { updSlot(slot.copy(width = it)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
+                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo) { wheelAt = null } }
+            if (editBar) BarEditor(slots, grouped, barArt, { l -> slots = l; Slots.save(prefs, l); active = active.coerceIn(0, l.size - 1); lastPen = l.indexOfFirst { it.tool == Tool.PEN }.coerceAtLeast(0) },
+                { grouped = it; prefs.edit().putBoolean("grouped", it).apply() }, { barArt = it; prefs.edit().putBoolean("barArt", it).apply() }) { editBar = false }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
-                { palMenu = false; lines = true }, { palMenu = false; showSettings = true },
-                when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter },
-                when (dock) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); else -> PaddingValues(bottom = 98.dp) }) { palMenu = false }
+                { palMenu = false; lines = true }, { palMenu = false; showSettings = true }, { palMenu = false; editBar = true },
+                dockAlign(dock), dockPad(dock, topPad)) { palMenu = false }
             if (stickers) AlertDialog({ stickers = false }, confirmButton = { TextButton({ stickers = false }) { Text("Cerrar") } }, title = { Text("Stickers") }, text = {
                 Column { "⭐️🌟✨💡📌📎✏️📚📝✅❌❗️❓💯🔥❤️💙💚💛💜🌸🌿🍀☀️🌙⚡️🎯🎓🧪🧬⚗️🔬📐📏🧠💭🗓️⏰🎉👍👀🙌".let { str ->
                     val list = java.text.BreakIterator.getCharacterInstance().let { bi -> bi.setText(str); var st = bi.first(); val out = ArrayList<String>(); var en = bi.next(); while (en != java.text.BreakIterator.DONE) { out += str.substring(st, en); st = en; en = bi.next() }; out }
@@ -270,8 +305,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 } }
             })
             if (lines) LinesSheet(nb.pages[pageIdx].template, { t -> nb.pages.forEach { it.template = t }; view.refresh(); dirty++; lines = false }) { lines = false }
-            val panelAlign = when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter }
-            val panelPad = when (dock) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); else -> PaddingValues(bottom = 98.dp) }
+            val panelAlign = dockAlign(dock)
+            val panelPad = dockPad(dock, topPad)
             Column(Modifier.align(panelAlign).navigationBarsPadding().padding(panelPad).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
                 AnimatedVisibility(picker != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
@@ -285,7 +320,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
-                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot) { picker = -1 }
+                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot,
+                        onFav = { slots = slots + slot.copy(); Slots.save(prefs, slots); android.widget.Toast.makeText(ctx, "Guardado como favorito: está en la barra y en la rueda", android.widget.Toast.LENGTH_SHORT).show() }) { picker = -1 }
                 }
                 AnimatedVisibility(hasSel, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 520f), 0.85f),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f)) {
@@ -309,39 +345,29 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                     }
                 }
             }
-            val tbAlpha by androidx.compose.animation.core.animateFloatAsState(1f, label = "tb")
-            val mini = collapsed
-            // Mover la barra: se arrastra del tirador y se suelta cerca del borde donde se quiere (izquierda, derecha o abajo).
-            // Decide la posición real del dedo, no la de la barra, así que siempre responde.
+            // ---- Barra: se arrastra del tirador a cualquiera de los cuatro bordes; minimizada es un botón que se mueve libremente.
             var drag by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
             var gripAt by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
             var finger by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
-            fun zone(f: androidx.compose.ui.geometry.Offset) = when { f.x < boxW * 0.18f -> 1; f.x > boxW * 0.82f -> -1; else -> 0 }
+            fun zone(f: androidx.compose.ui.geometry.Offset) = when { f.x < boxW * 0.16f -> 1; f.x > boxW * 0.84f -> -1; f.y < boxH * 0.4f -> 2; else -> 0 }
             val handle = Modifier.onGloballyPositioned { gripAt = it.positionInRoot() }.pointerInput(Unit) {
-                detectDragGestures(onDragStart = { finger = gripAt + it; showSettings = false }, onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero; finger = null }, onDragEnd = {
+                detectDragGestures(onDragStart = { finger = gripAt + it; showSettings = false; picker = null }, onDragCancel = { drag = androidx.compose.ui.geometry.Offset.Zero; finger = null }, onDragEnd = {
                     finger?.let { f -> val z = zone(f); if (z != dock) { dock = z; prefs.edit().putInt("dock", z).apply(); view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } }
                     drag = androidx.compose.ui.geometry.Offset.Zero; finger = null
                 }) { c, d -> c.consume(); drag += d; finger = gripAt + c.position }
             }
+            fun dockMod(d: Int) = Modifier.align(dockAlign(d)).navigationBarsPadding().padding(top = if (d == 2) topPad else 0.dp).padding(12.dp)
             val target = finger?.let { zone(it) }
-            AnimatedVisibility(target != null && target != dock, Modifier.align(when (target) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter }).navigationBarsPadding().padding(12.dp),
+            AnimatedVisibility(target != null && target != dock, dockMod(target ?: 0),
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.9f), exit = androidx.compose.animation.fadeOut()) {
-                Box(Modifier.size(if (target == 0) 420.dp else 60.dp, if (target == 0) 60.dp else 420.dp).clip(squircle(28)).background(Ars.Text.copy(alpha = 0.10f)).border(1.5.dp, Ars.Text.copy(alpha = 0.35f), squircle(28)))
+                val horiz = target == 0 || target == 2
+                Box(Modifier.size(if (horiz) 420.dp else 60.dp, if (horiz) 60.dp else 420.dp).clip(squircle(28)).background(Ars.Text.copy(alpha = 0.10f)).border(1.5.dp, Ars.Text.copy(alpha = 0.35f), squircle(28)))
             }
             val lift by androidx.compose.animation.core.animateFloatAsState(if (finger != null) 1.04f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f), label = "lift")
-            Box(Modifier.align(when (dock) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; else -> Alignment.BottomCenter })
-                .navigationBarsPadding().padding(12.dp).offset { androidx.compose.ui.unit.IntOffset(drag.x.toInt(), drag.y.toInt()) }
-                .graphicsLayer { scaleX = lift; scaleY = lift }
-                .graphicsLayer { alpha = tbAlpha }) {
-                androidx.compose.animation.AnimatedContent(mini,
-                    transitionSpec = { (androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.6f)) togetherWith (androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.6f)) using androidx.compose.animation.SizeTransform(clip = false) },
-                    label = "toolbar") { m -> if (m) {
-                    if (dock == 0) Surface(Modifier.size(64.dp).clickable { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 10.dp)) { ToolArt(slot, true) { collapsed = false } }
-                    } else Surface(Modifier.size(52.dp).clickable { collapsed = false }, shape = RoundedCornerShape(16.dp), shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(ArsIcons.Forward, "Mostrar herramientas", Modifier.graphicsLayer { rotationZ = if (dock < 0) 180f else 0f }) }
-                    }
-                } else AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
+            AnimatedVisibility(!collapsed, dockMod(dock).offset { androidx.compose.ui.unit.IntOffset(drag.x.toInt(), drag.y.toInt()) }.graphicsLayer { scaleX = lift; scaleY = lift },
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 480f), 0.7f),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.scaleOut(targetScale = 0.7f)) {
+                AppleToolbar(slots, if (textTool) -1 else active, swatches, canUndo, canRedo, ::pick, view::undo, view::redo, ::setColor, { picker = it }, { picker = -1 },
                     insertMenu = { open, close ->
                         DropdownMenu(open, close) {
                             DropdownMenuItem({ Text("Texto") }, { textTool = true; showSettings = false; close() }, leadingIcon = { Icon(ArsIcons.Text, null) })
@@ -351,11 +377,31 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(ArsIcons.Grid, null) })
                             DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(ArsIcons.Smile, null) })
                         }
-                    }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false }, dock = dock, handle = handle) }
+                    }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false; picker = null }, dock = dock, handle = handle, grouped = grouped, penIdx = lastPen, art = barArt)
+            }
+            if (collapsed) {
+                // posición libre, guardada como fracción de la pantalla
+                var mp by remember { mutableStateOf(androidx.compose.ui.geometry.Offset(prefs.getFloat("miniX", 0.5f), prefs.getFloat("miniY", 0.93f))) }
+                val pop = remember { androidx.compose.animation.core.Animatable(0.5f) }
+                LaunchedEffect(Unit) { pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 460f)) }
+                val szPx = with(androidx.compose.ui.platform.LocalDensity.current) { 60.dp.toPx() }
+                Surface(Modifier.offset { androidx.compose.ui.unit.IntOffset(((boxW - szPx) * mp.x).toInt(), ((boxH - szPx) * mp.y).toInt()) }.size(60.dp)
+                    .graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                    .pointerInput(Unit) { detectDragGestures(onDragEnd = { prefs.edit().putFloat("miniX", mp.x).putFloat("miniY", mp.y).apply() }) { c, d -> c.consume()
+                        mp = androidx.compose.ui.geometry.Offset((mp.x + d.x / (boxW - szPx).coerceAtLeast(1f)).coerceIn(0f, 1f), (mp.y + d.y / (boxH - szPx).coerceAtLeast(1f)).coerceIn(0.08f, 0.97f)) } }
+                    .bounceClick { collapsed = false }, shape = CircleShape, shadowElevation = 12.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(toolIcon(tool), "Mostrar herramientas")
+                        if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) Box(Modifier.align(Alignment.BottomEnd).padding(11.dp).size(11.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color(slot.color).copy(alpha = 1f)).border(1.5.dp, Ars.Glass.copy(alpha = 1f), CircleShape))
+                    }
+                }
             }
         }
     }
 }
+
+private fun dockAlign(d: Int) = when (d) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; 2 -> Alignment.TopCenter; else -> Alignment.BottomCenter }
+private fun dockPad(d: Int, top: androidx.compose.ui.unit.Dp) = when (d) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); 2 -> PaddingValues(top = top + 92.dp); else -> PaddingValues(bottom = 98.dp) }
 
 private fun Template.label() = when (this) { Template.BLANK -> "en blanco"; Template.LINED -> "rayado"; Template.GRID -> "cuadrícula"; Template.DOTS -> "puntos"; else -> "líneas y cuadrícula" }
 

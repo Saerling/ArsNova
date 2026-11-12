@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.performClick
 import com.arsnova.data.Repo
 import com.arsnova.data.Stroke
 import com.arsnova.data.Template
@@ -53,11 +55,14 @@ class ScreensTest {
     @Test fun settingsDark() { rule.setContent { ArsTheme(2) { SettingsScreen(2, {}) {} } }; shot("settings-dark") }
 
     @Test fun wheel() { rule.setContent { ArsTheme(2) { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(com.arsnova.ui.Ars.Bg)) {
-        com.arsnova.ui.ToolWheel(androidx.compose.ui.geometry.Offset(1280f, 760f), com.arsnova.ui.Slots.defaults, 0, listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, listOf(2.5f, 5f, 9f), true, false, {}, {}, {}, {}, {}, {}, {}) {} } } }; shot("wheel") }
+        com.arsnova.ui.ToolWheel(androidx.compose.ui.geometry.Offset(1280f, 760f), com.arsnova.ui.Slots.defaults, 0, listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, false, {}, {}, {}, {}, {}, {}) {} } } }; shot("wheel") }
     @Test fun panel() { val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("ars", 0)
         rule.setContent { ArsTheme(1) { androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(com.arsnova.ui.Ars.Bg).padding(24.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(24.dp)) {
-            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[0].copy(style = 1, color = 0xFF2D5BD9.toInt(), width = 6f), listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, {})
-            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[1], listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, {})
+            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[0].copy(style = 1, color = 0xFF2D5BD9.toInt(), width = 6f), listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, {})
+            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[1], listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, {})
             com.arsnova.ui.LatexView("\\Delta G = \\Delta H - T\\Delta S \\qquad \\int_{0}^{\\infty} e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}", androidx.compose.ui.Modifier.size(420.dp, 140.dp).background(com.arsnova.ui.Ars.Card))
         } } }; shot("panel") }
+    @Test fun newNotebook() { val (r, _) = repo(); rule.setContent { ArsTheme(2) { LibraryScreen(r, {}) {} } }
+        rule.onNode(androidx.compose.ui.test.hasText("Nueva nota")).performClick(); rule.waitForIdle()
+        rule.onAllNodes(androidx.compose.ui.test.isRoot()).onLast().captureRoboImage("build/shots/new-notebook.png") }
 }

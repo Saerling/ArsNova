@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -119,7 +120,7 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
                 TemplateChoices.chunked(4).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     row.forEach { (t, l) ->
                         val sel = t == current
-                        val bmp = remember(t) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, t), 0.07f).asImageBitmap() }
+                        val bmp = remember(t) { com.arsnova.ink.Ink.paperPreview(t, -1, 0f, 330, 440).asImageBitmap() }
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(88.dp).clickable { onPick(t) }) {
                             androidx.compose.foundation.Image(bmp, l, Modifier.size(84.dp, 64.dp).clip(RoundedCornerShape(8.dp))
                                 .border(if (sel) 2.5.dp else 1.dp, if (sel) Ars.Text else Ars.Line, RoundedCornerShape(8.dp)),
@@ -136,7 +137,7 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
 /** Menú ⋯ de la barra con interruptores (iPadOS). */
 @Composable
 fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin: (Boolean) -> Unit, onFinger: (Boolean) -> Unit, onBeautify: (Boolean) -> Unit,
-                onLines: () -> Unit, onPencil: () -> Unit, anchor: Alignment = Alignment.BottomCenter, pad: PaddingValues = PaddingValues(bottom = 96.dp), onDismiss: () -> Unit) {
+                onLines: () -> Unit, onPencil: () -> Unit, onEditBar: () -> Unit = {}, anchor: Alignment = Alignment.BottomCenter, pad: PaddingValues = PaddingValues(bottom = 96.dp), onDismiss: () -> Unit) {
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
         Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.padding(vertical = 6.dp)) {
@@ -151,6 +152,8 @@ fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin:
                 Text("Líneas y cuadrículas…", Modifier.fillMaxWidth().clickable { onLines() }.padding(18.dp, 14.dp))
                 HorizontalDivider()
                 Text("Ajustes del lápiz…", Modifier.fillMaxWidth().clickable { onPencil() }.padding(18.dp, 14.dp))
+                HorizontalDivider()
+                Text("Editar barra…", Modifier.fillMaxWidth().clickable { onEditBar() }.padding(18.dp, 14.dp))
             }
         }
     }
@@ -189,4 +192,38 @@ fun FormulaDialog(initial: String, onDismiss: () -> Unit, onDone: (String) -> Un
             }
         }
     }, confirmButton = { TextButton({ onDone(tex.text.trim()) }) { Text("Insertar") } }, dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
+}
+
+/** Editar la barra: qué herramientas y lápices hay, en qué orden, y cómo se ven. */
+@Composable
+fun BarEditor(slots: List<Slot>, grouped: Boolean, art: Boolean, onSlots: (List<Slot>) -> Unit, onGrouped: (Boolean) -> Unit, onArt: (Boolean) -> Unit, onClose: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
+        Surface(shape = squircle(30), shadowElevation = 20.dp, color = Ars.Sheet, modifier = Modifier.widthIn(max = 480.dp).padding(20.dp).pointerInput(Unit) { detectTapGestures { } }) {
+            Column(Modifier.heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("Editar barra", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f)); TextButton(onClose) { Text("Listo") } }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) { Text("Lápices con forma (estilo Apple)", Modifier.weight(1f)); Switch(art, onArt) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                    Column(Modifier.weight(1f)) { Text("Agrupar los lápices en un solo botón"); Text("La barra muestra solo el lápiz en uso; los demás siguen en la rueda", style = MaterialTheme.typography.bodySmall, color = Ars.Muted) }
+                    Switch(grouped, onGrouped) }
+                Text("En la barra", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+                slots.forEachIndexed { i, s ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(squircle(16)).background(Ars.CardHigh.copy(alpha = 0.6f)).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (s.tool == com.arsnova.data.Tool.PEN || s.tool == com.arsnova.data.Tool.HIGHLIGHTER) StrokePreview(s.copy(width = if (s.tool == com.arsnova.data.Tool.PEN) s.width.coerceIn(3f, 6f) else 12f), Modifier.size(44.dp, 30.dp))
+                        else Box(Modifier.size(44.dp, 30.dp), contentAlignment = Alignment.Center) { Icon(toolIcon(s.tool), null) }
+                        Text(s.name + (if (s.width > 0f) " · ${wfmt(s.width)}" else ""), Modifier.weight(1f).padding(start = 10.dp), maxLines = 1)
+                        IconButton({ onSlots(slots.toMutableList().also { it.add(i - 1, it.removeAt(i)) }) }, enabled = i > 0) { Icon(ArsIcons.Up, "Subir") }
+                        IconButton({ onSlots(slots.toMutableList().also { it.add(i + 1, it.removeAt(i)) }) }, enabled = i < slots.size - 1) { Icon(ArsIcons.Down, "Bajar") }
+                        IconButton({ onSlots(slots.toMutableList().also { it.removeAt(i) }) }, enabled = slots.size > 1) { Icon(ArsIcons.Trash, "Quitar", tint = Brand) }
+                    }
+                }
+                Text("Añadir", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+                val add = Slots.penOrder.map { Slots.fresh(com.arsnova.data.Tool.PEN, it) } + listOf(com.arsnova.data.Tool.HIGHLIGHTER, com.arsnova.data.Tool.ERASER, com.arsnova.data.Tool.LASSO, com.arsnova.data.Tool.TAPE, com.arsnova.data.Tool.LASER).map { Slots.fresh(it) }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    add.forEach { n -> Row(Modifier.bounceClick { onSlots(slots + n) }.clip(CircleShape).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(ArsIcons.Add, null, Modifier.size(15.dp)); Spacer(Modifier.width(6.dp)); Text(n.name, style = MaterialTheme.typography.labelLarge) } }
+                }
+                TextButton({ onSlots(Slots.defaults) }, Modifier.padding(top = 10.dp)) { Text("Restablecer la barra", color = Ars.Muted) }
+            }
+        }
+    }
 }

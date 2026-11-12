@@ -45,16 +45,22 @@ data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float
 
 object Slots {
     private val json = Json { ignoreUnknownKeys = true }
-    val defaults = listOf(Slot(Tool.PEN, 0, 0xFF1D1B18.toInt(), 5f), Slot(Tool.HIGHLIGHTER, 6, 0xFFF2B705.toInt(), 28f, 0.5f),
-        Slot(Tool.ERASER, 0, 0, 16f), Slot(Tool.LASSO, 0, 0, 0f), Slot(Tool.TAPE, 0, 0xFF7FB3D5.toInt(), 44f), Slot(Tool.LASER, 0, 0xFFFF3B30.toInt(), 8f))
-    /** Orden de estilos de lápiz (uno de cada uno). */
+    /** Como en Apple: cada lápiz es su propio botón, con su color, grosor y estabilización. */
+    val defaults = listOf(Slot(Tool.PEN, 0, 0xFF1D1B18.toInt(), 3.5f), Slot(Tool.PEN, 1, 0xFF2D5BD9.toInt(), 4f), Slot(Tool.PEN, 2, 0xFF3A3A3C.toInt(), 5f),
+        Slot(Tool.HIGHLIGHTER, 6, 0xFFF2B705.toInt(), 28f, 0.5f), Slot(Tool.ERASER, 0, 0, 16f), Slot(Tool.LASSO, 0, 0, 0f), Slot(Tool.TAPE, 0, 0xFF7FB3D5.toInt(), 44f), Slot(Tool.LASER, 0, 0xFFFF3B30.toInt(), 8f))
+    /** Orden de estilos de lápiz. */
     val penOrder = listOf(1, 7, 0, 4, 2, 3, 5, 8, 9, 10)
-    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots", null)!!) }.getOrNull()?.let { if (it.size == 4) it + defaults.drop(4) else it }?.takeIf { it.size == 6 } ?: defaults
-    fun save(p: SharedPreferences, s: List<Slot>) = p.edit().putString("slots", json.encodeToString(s)).apply()
+    fun fresh(t: Tool, style: Int = 0) = when (t) { Tool.HIGHLIGHTER -> defaults[3]; Tool.ERASER -> defaults[4]; Tool.LASSO -> defaults[5]; Tool.TAPE -> defaults[6]; Tool.LASER -> defaults[7]
+        else -> Slot(Tool.PEN, style, 0xFF1D1B18.toInt(), if (style == 3) 9f else 4f) }
+    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots2", null)!!) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: defaults
+    fun save(p: SharedPreferences, s: List<Slot>) = p.edit().putString("slots2", json.encodeToString(s)).apply()
     fun loadSwatches(p: SharedPreferences): List<Int> = p.getString("swatches", null)?.split(",")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 5 }
         ?: listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }
     fun saveSwatches(p: SharedPreferences, s: List<Int>) = p.edit().putString("swatches", s.joinToString(",")).apply()
 }
+
+fun toolIcon(t: Tool) = when (t) { Tool.PEN -> ArsIcons.Pen; Tool.HIGHLIGHTER -> ArsIcons.Highlighter; Tool.ERASER -> ArsIcons.Eraser; Tool.LASSO -> ArsIcons.Lasso; Tool.TAPE -> ArsIcons.Tape; Tool.LASER -> ArsIcons.Laser; else -> ArsIcons.Text }
+fun wfmt(w: Float) = if (kotlin.math.abs(w - Math.round(w)) < 0.01f) Math.round(w).toString() else "%.1f".format(w)
 
 /** Paleta ampliada: 12 tonos × 6 luminosidades + grises. */
 val BigPalette: List<Int> = buildList {
@@ -131,11 +137,11 @@ fun AppleToolbar(
     slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSelect: (Int) -> Unit, onUndo: () -> Unit, onRedo: () -> Unit, onColor: (Int) -> Unit, onEditSwatch: (Int) -> Unit,
     onPicker: () -> Unit, insertMenu: @Composable (Boolean, () -> Unit) -> Unit, onMore: () -> Unit, onCollapse: () -> Unit = {},
-    dock: Int = 0, handle: Modifier = Modifier,
+    dock: Int = 0, handle: Modifier = Modifier, grouped: Boolean = false, penIdx: Int = 0, art: Boolean = true,
 ) {
     val cs = MaterialTheme.colorScheme; val dark = cs.background.luminance() < 0.3f
     var plus by remember { mutableStateOf(false) }
-    val vertical = dock != 0
+    val vertical = dock == 1 || dock == -1
     val shape = squircle(28)
     val cur = slots.getOrNull(active)?.color ?: slots[0].color
     @Composable fun Sep() = Box(Modifier.padding(4.dp).size(if (vertical) 22.dp else 1.dp, if (vertical) 1.dp else 22.dp).background(cs.outline.copy(alpha = 0.35f)))
@@ -161,7 +167,10 @@ fun AppleToolbar(
         IconButton(onUndo, enabled = canUndo) { Icon(ArsIcons.Undo, "Deshacer") }
         IconButton(onRedo, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") }
         Sep()
-        slots.indices.forEach { ToolBtn(it) }
+        // Estilo Apple: en horizontal los lápices asoman de pie desde el borde y el elegido sube; agrupados, solo se ve el lápiz en uso
+        slots.indices.filter { slots[it].tool != Tool.PEN || !grouped || it == penIdx }.forEach { i ->
+            if (art && !vertical) Box(Modifier.padding(horizontal = 1.dp).graphicsLayer { rotationZ = if (dock == 2) 180f else 0f }) { ToolArt(slots[i], i == active, label = false) { onSelect(i) } }
+            else ToolBtn(i) }
         Sep()
         (if (vertical) swatches.take(2) else swatches).forEachIndexed { k, c -> Dot(c, k) }
         Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
@@ -169,7 +178,7 @@ fun AppleToolbar(
         Box { IconButton({ plus = true }) { Icon(ArsIcons.Add, "Insertar") }; insertMenu(plus) { plus = false } }
         IconButton(onMore) { Icon(ArsIcons.More, "Más") }
         IconButton(onCollapse) { Icon(ArsIcons.Down, "Minimizar", tint = cs.outline,
-            modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; else -> 0f } }) }
+            modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; 2 -> 180f; else -> 0f } }) }
     }
     val grip = @Composable { Box(handle.size(if (vertical) 52.dp else 36.dp, if (vertical) 34.dp else 52.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.size(if (vertical) 24.dp else 4.dp, if (vertical) 4.dp else 24.dp).clip(CircleShape).background(cs.outline.copy(alpha = 0.55f))) } }
@@ -186,14 +195,38 @@ object Widths {
     fun defaults(t: Tool) = when (t) { Tool.HIGHLIGHTER -> listOf(18f, 28f, 44f); Tool.ERASER -> listOf(10f, 18f, 40f); Tool.TAPE -> listOf(24f, 44f, 72f); else -> listOf(2.5f, 5f, 9f) }
     fun load(p: SharedPreferences, t: Tool): List<Float> = p.getString("wp${t.ordinal}", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 3 } ?: defaults(t)
     fun save(p: SharedPreferences, t: Tool, l: List<Float>) = p.edit().putString("wp${t.ordinal}", l.joinToString(",")).apply()
+    fun range(t: Tool) = when (t) { Tool.HIGHLIGHTER -> 8f..70f; Tool.ERASER -> 4f..80f; Tool.TAPE -> 12f..120f; else -> 0.3f..30f }
+    fun step(t: Tool) = if (t == Tool.PEN) 0.1f else 0.5f
 }
 
-private fun fmt(w: Float) = if (w % 1f == 0f) w.toInt().toString() else "%.1f".format(w)
+/** Ajuste fino: deslizador + botones de un paso + el número, que se puede tocar para escribir el valor exacto. */
+@Composable
+private fun Stepper(label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, unit: String = "", curve: Float = 1f, onChange: (Float) -> Unit) {
+    var typing by remember { mutableStateOf(false) }
+    fun snap(v: Float) = (Math.round(v / step) * step).coerceIn(range.start, range.endInclusive)
+    val span = range.endInclusive - range.start
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+        Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+        Box(Modifier.bounceClick { typing = true }.clip(squircle(10)).background(Ars.PillFill).padding(horizontal = 10.dp, vertical = 5.dp)) { Text(wfmt(value) + unit, style = MaterialTheme.typography.labelLarge) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton({ onChange(snap(value - step)) }) { Text("–", style = MaterialTheme.typography.titleLarge) }
+        Slider(Math.pow(((value - range.start) / span).coerceIn(0f, 1f).toDouble(), 1.0 / curve).toFloat(), { v -> onChange(snap(range.start + Math.pow(v.toDouble(), curve.toDouble()).toFloat() * span)) }, Modifier.weight(1f))
+        IconButton({ onChange(snap(value + step)) }) { Icon(ArsIcons.Add, null) }
+    }
+    if (typing) { var t by remember { mutableStateOf(wfmt(value)) }
+        AlertDialog({ typing = false }, title = { Text(label) }, text = { OutlinedTextField(t, { t = it.filter { c -> c.isDigit() || c == '.' || c == ',' }.take(6) }, singleLine = true, shape = squircle(16),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)) },
+            confirmButton = { TextButton({ t.replace(',', '.').toFloatOrNull()?.let { onChange(it.coerceIn(range.start, range.endInclusive)) }; typing = false }) { Text("Listo") } },
+            dismissButton = { TextButton({ typing = false }) { Text("Cancelar") } }) }
+}
+
+private fun fmt(w: Float) = wfmt(w)
 
 /** Trazo de muestra dibujado con el motor de tinta real: lo que ves es lo que escribirás. */
 @Composable
-fun StrokePreview(s: Slot, modifier: Modifier = Modifier) {
-    val dark = Ars.dark
+fun StrokePreview(s: Slot, modifier: Modifier = Modifier, onPaper: Boolean = false) {
+    val dark = Ars.dark && !onPaper
     Canvas(modifier) {
         val k = density; val w = size.width / k; val h = size.height / k; val n = 44
         val pts = FloatArray(n * 3)
@@ -208,17 +241,18 @@ fun StrokePreview(s: Slot, modifier: Modifier = Modifier) {
     }
 }
 
-/** Panel de la herramienta: muestra del trazo, tipos de punta, grosor con tamaños guardados, estabilización, opacidad y colores. */
+/** Panel de la herramienta: muestra del trazo, tipo de punta, grosor, estabilización y opacidad con ajuste fino, favoritos y colores. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onPicker: () -> Unit) {
+fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onFav: (() -> Unit)? = null, onPicker: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ink = s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER
-    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(bottom = 10.dp).width(372.dp)) {
-        Column(Modifier.padding(18.dp, 14.dp)) {
+    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 10.dp).width(372.dp)) {
+        Column(Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()).padding(18.dp, 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                if (s.tool != Tool.LASSO && s.tool != Tool.LASER) Text(fmt(s.width), style = MaterialTheme.typography.labelLarge, color = Ars.Muted)
+                if (ink && onFav != null) Row(Modifier.bounceClick { onFav() }.clip(CircleShape).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ArsIcons.Star, null, Modifier.size(15.dp)); Spacer(Modifier.width(6.dp)); Text("Guardar favorito", style = MaterialTheme.typography.labelMedium) }
             }
             if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18)).background(if (Ars.dark) Color(0xFF1C1C1E) else Color.White).border(1.dp, Ars.GlassBorder, squircle(18))) {
                 StrokePreview(s, Modifier.fillMaxSize()) }
@@ -233,24 +267,24 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
                 if (s.tool == Tool.TAPE) Text("Dibuja la cinta sobre lo que quieras ocultar; tócala con esta herramienta para mostrar u ocultar.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 6.dp))
             }
             if (s.tool != Tool.LASSO && s.tool != Tool.LASER) {
-                val range = when (s.tool) { Tool.HIGHLIGHTER -> 10f..70f; Tool.ERASER -> 6f..80f; Tool.TAPE -> 16f..120f; else -> 0.5f..40f }
-                val step = if (s.tool == Tool.PEN) 0.5f else 1f
                 var presets by remember(s.tool) { mutableStateOf(Widths.load(prefs, s.tool)) }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    IconButton({ onChange(s.copy(width = (s.width - step).coerceIn(range))) }) { Text("–", color = cs.onSurface, style = MaterialTheme.typography.titleLarge) }
-                    // la mitad baja del control es más fina: los grosores pequeños son los que más se usan
-                    Slider(kotlin.math.sqrt((s.width - range.start) / (range.endInclusive - range.start)), { v -> onChange(s.copy(width = (range.start + v * v * (range.endInclusive - range.start)).let { kotlin.math.round(it / step) * step }.coerceIn(range))) }, Modifier.weight(1f))
-                    IconButton({ onChange(s.copy(width = (s.width + step).coerceIn(range))) }) { Icon(ArsIcons.Add, null) }
-                }
+                Stepper("Grosor", s.width, Widths.range(s.tool), Widths.step(s.tool), curve = 2.2f) { onChange(s.copy(width = it)) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     presets.forEachIndexed { i, w -> val on = kotlin.math.abs(w - s.width) < 0.05f
-                        Row(Modifier.weight(1f).height(40.dp).clip(squircle(14)).background(if (on) Ars.Text else Ars.PillFill)
+                        Row(Modifier.weight(1f).height(38.dp).clip(squircle(14)).background(if (on) Ars.Text else Ars.PillFill)
                             .combinedClickable(onClick = { onChange(s.copy(width = w)) }, onLongClick = { presets = presets.toMutableList().also { it[i] = s.width }; Widths.save(prefs, s.tool, presets) }),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            Box(Modifier.size((w * (if (s.tool == Tool.PEN) 1.5f else 0.4f)).coerceIn(3f, 22f).dp).clip(CircleShape).background(if (on) Ars.Bg else Ars.Text))
-                            Spacer(Modifier.width(8.dp)); Text(fmt(w), style = MaterialTheme.typography.labelMedium, color = if (on) Ars.Bg else Ars.Text) } }
+                            Box(Modifier.size((w * (if (s.tool == Tool.PEN) 1.8f else 0.4f)).coerceIn(3f, 22f).dp).clip(CircleShape).background(if (on) Ars.Bg else Ars.Text))
+                            Spacer(Modifier.width(8.dp)); Text(wfmt(w), style = MaterialTheme.typography.labelMedium, color = if (on) Ars.Bg else Ars.Text) } }
                 }
                 Text("Mantén pulsado un tamaño para guardar el grosor actual", style = MaterialTheme.typography.labelSmall, color = Ars.Muted, modifier = Modifier.padding(top = 4.dp))
+            }
+            if (s.tool == Tool.ERASER) {
+                var hold by remember { mutableStateOf(prefs.getBoolean("holdErase", true)) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+                    Column(Modifier.weight(1f)) { Text("Mantener para borrar", color = cs.onSurface)
+                        Text("Con cualquier lápiz: apoya la punta sin moverla medio segundo y borra hasta que la levantes", style = MaterialTheme.typography.bodySmall, color = Ars.Muted) }
+                    Switch(hold, { hold = it; prefs.edit().putBoolean("holdErase", it).apply() }) }
             }
             if (s.tool == Tool.TAPE || s.tool == Tool.LASER) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                 listOf(0xFF7FB3D5, 0xFFF5B7B1, 0xFFA9DFBF, 0xFFF9E79F, 0xFFD7BDE2, 0xFFFF3B30, 0xFF1D1B18).map { it.toInt() }.forEach { c -> val on = c == s.color
@@ -258,12 +292,9 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
                         if (on) Icon(ArsIcons.Check, null, Modifier.size(16.dp), tint = Color.White) } }
             }
             if (ink) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) { Text("Estabilización", Modifier.weight(1f), color = cs.onSurface); Text("${(s.stab * 100).toInt()}%", color = Ars.Muted) }
-                Slider(s.stab, { onChange(s.copy(stab = it)) }, steps = 9)
-                val op = ((s.color ushr 24) / 255f)
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Opacidad", Modifier.weight(1f), color = cs.onSurface); Text("${(op * 100).toInt()}%", color = Ars.Muted) }
-                Slider(op, { onChange(s.copy(color = (s.color and 0x00FFFFFF) or ((it * 255).toInt().coerceIn(20, 255) shl 24))) }, valueRange = 0.1f..1f)
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Enderezar líneas y figuras", Modifier.weight(1f), color = cs.onSurface); Switch(shapesOn, onShapes) }
+                Stepper("Estabilización", Math.round(s.stab * 100).toFloat(), 0f..100f, 1f, "%") { onChange(s.copy(stab = it / 100f)) }
+                Stepper("Opacidad", Math.round((s.color ushr 24) / 2.55f).toFloat(), 10f..100f, 1f, "%") { onChange(s.copy(color = (s.color and 0x00FFFFFF) or ((it * 2.55f).toInt().coerceIn(20, 255) shl 24))) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) { Text("Enderezar líneas y figuras", Modifier.weight(1f), color = cs.onSurface); Switch(shapesOn, onShapes) }
                 val quick = (swatches + listOf(0xFFFFFFFF, 0xFF8E8E93, 0xFFAF52DE, 0xFF5AC8FA).map { it.toInt() }).distinct().take(8)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 10.dp)) {
                     quick.forEach { c -> val on = (c or 0xFF000000.toInt()) == (s.color or 0xFF000000.toInt())

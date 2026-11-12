@@ -178,7 +178,7 @@ private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Tem
     var tab by remember { mutableIntStateOf(1) }
     var cat by remember { mutableIntStateOf(0) }
     val spacing = if (lsp == 0) 0f else 30f + lsp * 8f
-    @Composable fun thumb(t: Template, scale: Float) = remember(t, paper, lsp) { com.arsnova.ink.Ink.render(com.arsnova.data.Page(0, t, paper = paper, spacing = spacing), scale).asImageBitmap() }
+    @Composable fun thumb(t: Template, scale: Float) = remember(t, paper, lsp) { com.arsnova.ink.Ink.paperPreview(t, paper, spacing, 360, 480).asImageBitmap() }
     androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Ambient(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -222,8 +222,8 @@ private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Tem
                         TemplateCats.drop(cat).forEach { (n, list) ->
                             Text(n, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                list.forEach { (t, l) -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(110.dp).clickable { tpl = t }) {
-                                    Box { Image(thumb(t, 0.07f), l, Modifier.size(104.dp, 140.dp).clip(RoundedCornerShape(8.dp)).border(if (t == tpl) 3.dp else 1.dp, if (t == tpl) cs.primary else cs.outline.copy(alpha = 0.35f), RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                                list.forEach { (t, l) -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(138.dp).bounceClick(scale = 0.95f) { tpl = t }) {
+                                    Box { Image(thumb(t, 0.07f), l, Modifier.size(132.dp, 176.dp).clip(squircle(14)).border(if (t == tpl) 2.5.dp else 1.dp, if (t == tpl) Ars.Text else Ars.Line, squircle(14)), contentScale = ContentScale.Crop)
                                         if (t == tpl) Box(Modifier.align(Alignment.BottomCenter).padding(8.dp).size(22.dp).clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
                                             Icon(ArsIcons.Check, null, Modifier.size(14.dp), tint = cs.onPrimary) } }
                                     Text(l, Modifier.padding(top = 6.dp), color = if (t == tpl) cs.primary else cs.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1) } }

@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.arsnova.data.Repo
 import com.arsnova.ui.ArsTheme
@@ -28,10 +29,19 @@ class MainActivity : ComponentActivity() {
             ArsTheme(theme) {
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
                 var settings by rememberSaveable { mutableStateOf(false) }
-                val id = open
-                if (settings) { BackHandler { settings = false }; com.arsnova.ui.SettingsScreen(theme, { theme = it; prefs.edit().putInt("theme", it).apply() }) { settings = false } }
-                else if (id == null) LibraryScreen(repo, { settings = true }) { open = it }
-                else { BackHandler { open = null }; EditorScreen(repo, id) { open = null } }
+                val screen = when { settings -> "s"; open == null -> "l"; else -> "e:$open" }
+                // cambio de pantalla: la nueva entra con un leve aumento mientras la anterior se desvanece
+                androidx.compose.animation.AnimatedContent(screen, transitionSpec = {
+                    val e = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, 60)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(320, easing = e), if (targetState.startsWith("e")) 0.94f else 1.04f))
+                        .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)))
+                }, label = "screen") { sc ->
+                    when {
+                        sc == "s" -> { BackHandler { settings = false }; com.arsnova.ui.SettingsScreen(theme, { theme = it; prefs.edit().putInt("theme", it).apply() }) { settings = false } }
+                        sc == "l" -> LibraryScreen(repo, { settings = true }) { open = it }
+                        else -> { BackHandler { open = null }; EditorScreen(repo, sc.substring(2)) { open = null } }
+                    }
+                }
             }
         }
     }

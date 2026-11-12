@@ -29,11 +29,12 @@ class Repo(private val ctx: Context) {
         return nb.id
     }
 
-    /** Serializa en el hilo actual (UI, para evitar carreras) y escribe en segundo plano. */
+    /** Toma una copia ligera en el hilo de la interfaz (solo listas) y serializa y escribe en segundo plano: guardar no frena la escritura. */
     fun saveAsync(nb: Notebook, thumb: Bitmap?) {
         nb.updated = System.currentTimeMillis()
-        val s = json.encodeToString(nb); val m = meta(nb)
-        io.execute { write(nb.id, s, m, thumb) }
+        val snap = Notebook(nb.id, nb.title, nb.cover, nb.template, nb.updated,
+            nb.pages.mapTo(ArrayList()) { Page(it.id, it.template, ArrayList(it.strokes), it.bg, ArrayList(it.items), it.ocr, it.paper, it.spacing) }, ArrayList(nb.recs), nb.pattern, nb.folder)
+        io.execute { runCatching { write(snap.id, json.encodeToString(snap), meta(snap), thumb) } }
     }
 
     fun rename(id: String, title: String) = io.execute {

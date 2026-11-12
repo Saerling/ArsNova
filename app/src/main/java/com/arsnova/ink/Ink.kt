@@ -120,10 +120,21 @@ object Ink {
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1.5f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
     private val red = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f; color = 0x66E0533D }
     fun drawPaper(c: Canvas, p: Page) = drawPaper(c, p.template, p.bg, p.paper, p.spacing)
-    fun drawPaper(c: Canvas, t: Template, bgName: String? = null, paper: Int = -1, spacing: Float = 0f) {
+    /** Miniatura de un tipo de hoja: se ve de cerca (o la hoja entera en las plantillas con estructura) y con las líneas reforzadas. */
+    fun paperPreview(t: Template, paper: Int, spacing: Float, w: Int, h: Int): Bitmap {
+        val whole = t == Template.CORNELL || t == Template.WEEKLY || t == Template.TODO || t == Template.MUSIC || t == Template.HANDWRITING || t == Template.MARGIN
+        val k = w / (if (whole) PAGE_W else 520f)
+        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val c = Canvas(b); c.drawColor(paper); c.scale(k, k); if (!whole) c.translate(-30f, -120f)
+        synchronized(this) { drawPaper(c, t, null, paper, spacing, if (whole) 3.4f else 1.6f); rule.strokeWidth = 1.5f; dash.strokeWidth = 1.5f; red.strokeWidth = 2f }
+        return b
+    }
+
+    fun drawPaper(c: Canvas, t: Template, bgName: String? = null, paper: Int = -1, spacing: Float = 0f, boost: Float = 1f) {
+        if (boost != 1f) { rule.strokeWidth = 1.5f * boost; dash.strokeWidth = 1.5f * boost; red.strokeWidth = 2f * boost }
         white.color = paper; c.drawRect(0f, 0f, PAGE_W, PAGE_H, white)
         val darkP = isDark(paper); darkPaper = darkP
         rule.color = if (darkP) 0x40FFFFFF else 0xFFDCD6CB.toInt(); dash.color = rule.color
+        if (boost != 1f) { rule.color = if (darkP) 0x80FFFFFF.toInt() else 0xFF9E988D.toInt(); dash.color = rule.color }
         bgName?.let { bg(it) }?.let { b ->
             val s = minOf(PAGE_W / b.width, PAGE_H / b.height); val w = b.width * s; val h = b.height * s
             dst.set((PAGE_W - w) / 2, (PAGE_H - h) / 2, (PAGE_W + w) / 2, (PAGE_H + h) / 2)
@@ -139,7 +150,7 @@ object Ink {
                 var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, rule); x += st }
                 var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, rule); y += st }
             }
-            Template.DOTS -> { val st = sp(52f); var y = st; while (y < PAGE_H) { var x = st; while (x < PAGE_W) { c.drawCircle(x, y, 2.4f, rule); x += st }; y += st } }
+            Template.DOTS -> { val st = sp(52f); var y = st; while (y < PAGE_H) { var x = st; while (x < PAGE_W) { c.drawCircle(x, y, 2.4f * boost, rule); x += st }; y += st } }
             Template.MARGIN -> { lines(sp(56f), 0f, 160f, PAGE_W); c.drawLine(170f, 0f, 170f, PAGE_H, red) }
             Template.CORNELL -> { c.drawLine(70f, 150f, PAGE_W - 70f, 150f, rule); lines(sp(56f), 430f, 210f, PAGE_W - 70f, PAGE_H - 420f)
                 c.drawLine(400f, 150f, 400f, PAGE_H - 400f, rule); c.drawLine(70f, PAGE_H - 400f, PAGE_W - 70f, PAGE_H - 400f, rule) }
