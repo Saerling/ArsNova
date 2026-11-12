@@ -80,6 +80,7 @@ class InkView(context: Context) : View(context) {
         class EditText(val it: Item, val old: String, val new: String) : Op()
         class Scale(val s: List<Stroke>, val its: List<Item>, val ox: Float, val oy: Float, val f: Float) : Op()
         class Paste(val s: List<Stroke>, val its: List<Item>) : Op()
+        class Rotate(val s: List<Stroke>, val its: List<Item>, val cx: Float, val cy: Float, val deg: Float) : Op()
         class Replace(val removed: List<Pair<Int, Stroke>>, val added: List<Stroke>) : Op()
         class Recolor(val s: List<Stroke>, val old: IntArray, val new: IntArray) : Op()
     }
@@ -121,6 +122,9 @@ class InkView(context: Context) : View(context) {
     private val lasso = Path()
     private val sel = ArrayList<Stroke>(); private val selIt = ArrayList<Item>(); private val selBounds = RectF()
     private var resizing = false; private var selF = 1f
+    private var rotating = false; private var selA = 0f; private var rotA0 = 0f
+    private var navLock = false
+    private val euroX = OneEuro(4f, 0.012f); private val euroY = OneEuro(4f, 0.012f); private var euroT = 0L
     var onTextEdit: (Item, Boolean) -> Unit = { _, _ -> }
     private var selDx = 0f; private var selDy = 0f; private var lastX = 0f; private var lastY = 0f
     private var lfx = 0f; private var lfy = 0f; private var lspan = 0f
@@ -298,6 +302,7 @@ class InkView(context: Context) : View(context) {
             is Op.EditText -> op.it.text = op.new
             is Op.Scale -> { op.s.forEach { it.scale(op.ox, op.oy, op.f) }; op.its.forEach { it.scale(op.ox, op.oy, op.f) } }
             is Op.Paste -> { p.strokes.addAll(op.s); p.items.addAll(op.its) }
+            is Op.Rotate -> { op.s.forEach { it.rotate(op.cx, op.cy, op.deg) }; op.its.forEach { it.rotate(op.cx, op.cy, op.deg) } }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.new[i] }
         }
     }
@@ -313,6 +318,7 @@ class InkView(context: Context) : View(context) {
             is Op.EditText -> op.it.text = op.old
             is Op.Scale -> { op.s.forEach { it.scale(op.ox, op.oy, 1f / op.f) }; op.its.forEach { it.scale(op.ox, op.oy, 1f / op.f) } }
             is Op.Paste -> { p.strokes.removeAll(op.s.toSet()); p.items.removeAll(op.its.toSet()) }
+            is Op.Rotate -> { op.s.forEach { it.rotate(op.cx, op.cy, -op.deg) }; op.its.forEach { it.rotate(op.cx, op.cy, -op.deg) } }
             is Op.Recolor -> op.s.forEachIndexed { i, s -> s.color = op.old[i] }
         }
     }
@@ -443,12 +449,17 @@ class InkView(context: Context) : View(context) {
         if (center != reported) { reported = center; post { onPage(center) } }
         c.save(); c.concat(matrix); c.translate(0f, pageOy)
         if (hasSelection()) {
-            c.save(); if (resizing) c.scale(selF, selF, selBounds.left, selBounds.top) else c.translate(selDx, selDy)
+            c.save(); if (rotating) c.rotate(selA, selBounds.centerX(), selBounds.centerY()) else if (resizing) c.scale(selF, selF, selBounds.left, selBounds.top) else c.translate(selDx, selDy)
             selIt.forEach { Ink.drawItem(c, it) }; sel.forEach { Ink.drawStroke(c, it) }
             val k = if (resizing) selF else 1f
             dash.strokeWidth = 2f / scale / k; c.drawRect(selBounds, dash)
             knob.style = Paint.Style.FILL; knob.color = Color.WHITE; c.drawCircle(selBounds.right, selBounds.bottom, dp(7f) / scale / k, knob)
             knob.style = Paint.Style.STROKE; knob.color = dash.color; knob.strokeWidth = dp(2f) / scale / k; c.drawCircle(selBounds.right, selBounds.bottom, dp(7f) / scale / k, knob)
+            // tirador de giro, sobre el borde superior
+            val ry = selBounds.top - dp(34f) / scale / k
+            c.drawLine(selBounds.centerX(), selBounds.top, selBounds.centerX(), ry, knob)
+            knob.style = Paint.Style.FILL; knob.color = Color.WHITE; c.drawCircle(selBounds.centerX(), ry, dp(8f) / scale / k, knob)
+            knob.style = Paint.Style.STROKE; knob.color = dash.color; c.drawCircle(selBounds.centerX(), ry, dp(8f) / scale / k, knob)
             c.restore()
         }
         if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
@@ -485,9 +496,11 @@ class InkView(context: Context) : View(context) {
         vt?.addMovement(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                val penNear = hoverX >= 0f || e.eventTime - lastStylus < 600
                 requestUnbufferedDispatch(e); hoverX = -1f
                 parent?.requestDisallowInterceptTouchEvent(true)
                 isStylus = stylusAt(e, 0); maxPointers = 1; navTravel = 0f
+                navLock = penNear && !isStylus   // la mano apoyada mientras escribes: hace falta un segundo dedo para mover la hoja
                 if (isStylus) lastStylus = e.eventTime
                 // con el lápiz cerca (o recién usado) un dedo es casi seguro la palma: navega, no dibuja
                 if (isStylus || (!stylusOnly && e.eventTime - lastStylus > 1200)) begin(e, 0) else { mode = Mode.NAV; navReset(e, -1) }
@@ -533,6 +546,7 @@ class InkView(context: Context) : View(context) {
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
+                euroX.reset(); euroY.reset(); euroX.filter(x, 0.004f); euroY.filter(y, 0.004f); euroT = e.eventTime
                 rawX = x; rawY = y; rawP = pressure(e.getPressure(i)); add(x, y, rawP); sigX = sx; sigY = sy; postSnap(); onInking(true)
                 downSX = sx; downSY = sy; removeCallbacks(holdToErase); if (isStylus && holdErase && !eraserBtn) postDelayed(holdToErase, 480)
             }
@@ -542,8 +556,10 @@ class InkView(context: Context) : View(context) {
                 else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
             Tool.LASER -> { mode = Mode.LASER; val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 1f)) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
-            Tool.LASSO -> if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
-                mode = Mode.MOVE_SEL; lastX = x; lastY = y; selF = 1f
+            Tool.LASSO -> if (hasSelection() && hypot(x - selBounds.centerX(), y - (selBounds.top - dp(34f) / scale)) < dp(22f) / scale) {
+                mode = Mode.MOVE_SEL; rotating = true; resizing = false; selA = 0f; rotA0 = kotlin.math.atan2(y - selBounds.centerY(), x - selBounds.centerX()) }
+                else if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
+                mode = Mode.MOVE_SEL; lastX = x; lastY = y; selF = 1f; rotating = false
                 resizing = hypot(x - selBounds.right, y - selBounds.bottom) < dp(26f) / scale }
                 else { clearSelection(); mode = Mode.LASSO; lasso.reset(); lasso.moveTo(x, y) }
         }
@@ -584,20 +600,25 @@ class InkView(context: Context) : View(context) {
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 rawX = x; rawY = y; rawP = pressure(pr)
                 if (hypot(x - cur[curN - 3], y - cur[curN - 2]) * scale < 0.8f) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
-                // Estabilizador de "cuerda": la tinta va atada al lápiz por una cuerda corta y solo avanza cuando se tensa,
-                // así el temblor se queda dentro de la cuerda y las curvas salen limpias sin que el trazo se quede atrás.
+                // Estabilización: filtro 1 € (suaviza el temblor cuando vas despacio y no frena cuando vas rápido).
+                // En la mitad alta del control se suma una "cuerda" corta para líneas y curvas largas muy limpias.
                 val bx = cur[curN - 3]; val by = cur[curN - 2]; var gx = x; var gy = y
-                val rope = Math.pow(stabilize.toDouble(), 1.5).toFloat() * dp(9f) / scale
-                if (rope > 0.01f) { val d = hypot(x - bx, y - by); if (d <= rope) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
-                    gx = bx + (x - bx) * (d - rope) / d; gy = by + (y - by) * (d - rope) / d }
-                val k = 1f - stabilize * 0.35f
-                add(bx + (gx - bx) * k, by + (gy - by) * k, pressure(pr))
+                if (stabilize > 0.01f) {
+                    val dt = (time - euroT).coerceIn(1L, 40L) / 1000f; euroT = time
+                    val cut = 0.9f + 13f * (1f - stabilize) * (1f - stabilize); euroX.minCutoff = cut; euroY.minCutoff = cut
+                    gx = euroX.filter(x, dt); gy = euroY.filter(y, dt)
+                    val rope = Math.pow(((stabilize - 0.5f) * 2f).coerceAtLeast(0f).toDouble(), 1.5).toFloat() * dp(8f) / scale
+                    if (rope > 0.01f) { val d = hypot(gx - bx, gy - by); if (d <= rope) { if (rawP > cur[curN - 1]) cur[curN - 1] = rawP; return }
+                        val f = (d - rope) / d; gx = bx + (gx - bx) * f; gy = by + (gy - by) * f }
+                }
+                add(gx, gy, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
             Mode.LASER -> { val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 0f)) }
             Mode.LASSO -> lasso.lineTo(x, y)
             Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
-            Mode.MOVE_SEL -> if (resizing) selF = (hypot(x - selBounds.left, y - selBounds.top) / hypot(selBounds.width(), selBounds.height()).coerceAtLeast(1f)).coerceIn(0.15f, 8f)
+            Mode.MOVE_SEL -> if (rotating) selA = Math.toDegrees((kotlin.math.atan2(y - selBounds.centerY(), x - selBounds.centerX()) - rotA0).toDouble()).toFloat()
+                else if (resizing) selF = (hypot(x - selBounds.left, y - selBounds.top) / hypot(selBounds.width(), selBounds.height()).coerceAtLeast(1f)).coerceIn(0.15f, 8f)
                 else { selDx += x - lastX; selDy += y - lastY; lastX = x; lastY = y }
             else -> {}
         }
@@ -686,7 +707,14 @@ class InkView(context: Context) : View(context) {
                 val hit = p.items.lastOrNull { it.kind != 1 && it.bounds().contains(lastX, lastY) }
                 if (hit != null) onTextEdit(hit, false) else onTextEdit(Item(System.nanoTime(), 0, lastX, lastY, (Ink.PAGE_W - lastX - 60f).coerceAtLeast(240f), color = color), true)
             } else hitStroke(lastX, lastY)?.let(onStrokeTap)
-            Mode.MOVE_SEL -> if (resizing) {
+            Mode.MOVE_SEL -> if (rotating) {
+                rotating = false
+                if (kotlin.math.abs(selA) > 0.5f) {
+                    val op = Op.Rotate(ArrayList(sel), ArrayList(selIt), selBounds.centerX(), selBounds.centerY(), selA); apply(op); undos().addLast(op.also { it.pg = page }); redos().clear()
+                    selBounds.setEmpty(); sel.forEach { selBounds.union(it.bounds) }; selIt.forEach { selBounds.union(it.bounds()) }; notifyState(); onChange()
+                }
+                selA = 0f
+            } else if (resizing) {
                 resizing = false
                 if (kotlin.math.abs(selF - 1f) > 0.01f) {
                     val op = Op.Scale(ArrayList(sel), ArrayList(selIt), selBounds.left, selBounds.top, selF); apply(op); undos().addLast(op.also { it.pg = page }); redos().clear()
@@ -715,7 +743,7 @@ class InkView(context: Context) : View(context) {
     private fun cancelDraw() {
         removeCallbacks(holdToErase); removeCallbacks(snap); onInking(false)
         if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
-        curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; ex = -1f; invalidate()
+        curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; rotating = false; selA = 0f; ex = -1f; invalidate()
     }
 
     // ---------- hover / botones del lápiz ----------
@@ -749,6 +777,7 @@ class InkView(context: Context) : View(context) {
         val n = e.pointerCount; var sx = 0f; var sy = 0f
         for (i in 0 until n) { sx += e.getX(i); sy += e.getY(i) }
         val fx = sx / n; val fy = sy / n
+        if (navLock) { if (n >= 2) { navLock = false; navReset(e, -1) }; return }
         if (navTravel < dp(6f)) {
             // umbral: un toque (o la palma apoyada) no mueve la hoja
             var sp = 0f; if (n >= 2) { for (i in 0 until n) sp += hypot(e.getX(i) - fx, e.getY(i) - fy); sp /= n }

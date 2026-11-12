@@ -9,6 +9,7 @@ ArsNova se distribuye bajo la licencia GPL-3.0 (ver `LICENSE`).
   `UpdateAvailableDialog`.
 - **JLaTeXMath** — github.com/opencollab/jlatexmath (GPL-2.0 o posterior, con excepción de enlace) mediante
   `ru.noties:jlatexmath-android` (Apache-2.0): dibuja las fórmulas LaTeX.
+- **Filtro 1 €** — Casiez, Roussel y Vogel (CHI 2012), algoritmo público: base de la estabilización del trazo (`ink/OneEuro.kt`, implementación propia).
 - **Inter** — rsms.me/inter (SIL Open Font License 1.1).
 
 El motor de tinta (`ink/Nib.kt`, `ink/Ink.kt`, `ink/InkView.kt`) y los iconos (`ui/ArsIcons.kt`) son código propio.

@@ -94,6 +94,22 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 OutlinedTextField(key, { key = it; p.edit().putString("aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     label = { Text("Clave de API de Claude") }, singleLine = true, supportingText = { Text("Se guarda solo en este dispositivo") }) } }
             item {
+                Header("Copia de seguridad"); Group {
+                val repo = remember { com.arsnova.data.Repo(ctx.applicationContext) }
+                var busy by remember { mutableStateOf<String?>(null) }
+                val save = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+                    if (uri != null) { busy = "Exportando…"; scope.launch {
+                        val ok = runCatching { withContext(Dispatchers.IO) { ctx.contentResolver.openOutputStream(uri)!!.use { repo.exportZip(it) } } }.isSuccess; busy = null
+                        android.widget.Toast.makeText(ctx, if (ok) "Copia guardada" else "No se pudo guardar la copia", android.widget.Toast.LENGTH_SHORT).show() } } }
+                val open = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) { busy = "Restaurando…"; scope.launch {
+                        val n = runCatching { withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(uri)!!.use { repo.importZip(it) } } }.getOrNull(); busy = null
+                        android.widget.Toast.makeText(ctx, if (n != null) "Copia restaurada" else "Ese archivo no es una copia de ArsNova", android.widget.Toast.LENGTH_LONG).show() } } }
+                ListItem({ Text("Exportar todo") }, supportingContent = { Text(busy ?: "Guarda todos tus cuadernos en un archivo .zip (tus notas solo viven en esta tablet)") },
+                    modifier = Modifier.clickable(enabled = busy == null) { save.launch("ArsNova-copia.zip") })
+                ListItem({ Text("Restaurar una copia") }, supportingContent = { Text("Añade los cuadernos de un .zip exportado antes") },
+                    modifier = Modifier.clickable(enabled = busy == null) { open.launch(arrayOf("application/zip", "application/octet-stream")) }) } }
+            item {
                 Header("Actualizaciones"); Group {
                 Toggle("Buscar al abrir", "Avisa cuando hay una versión nueva en GitHub", auto) { auto = it; p.edit().putBoolean("autoUpdate", it).apply() }
                 ListItem({ Text("Buscar actualización ahora") }, supportingContent = { Text("Versión instalada: ${Updater.current(ctx)}") },

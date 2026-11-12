@@ -9,6 +9,7 @@ import java.util.UUID
 import java.util.concurrent.Executors
 
 class Repo(private val ctx: Context) {
+    companion object { /** Carpeta interna de la papelera. */ const val TRASH = "\u0001papelera" }
     val dir = File(ctx.filesDir, "nb").apply { mkdirs() }
     private val io = Executors.newSingleThreadExecutor()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
@@ -19,6 +20,27 @@ class Repo(private val ctx: Context) {
             .sortedByDescending { it.updated }
 
     fun thumb(id: String) = File(dir, "$id.png")
+
+    /** Copia de seguridad: todos los cuadernos, imágenes, PDF y audios en un .zip. */
+    fun exportZip(out: java.io.OutputStream) = java.util.zip.ZipOutputStream(out).use { z ->
+        dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") && !it.name.endsWith(".bak") }?.forEach { f ->
+            z.putNextEntry(java.util.zip.ZipEntry(f.name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry() }
+    }
+
+    /** Restaura una copia: añade sus cuadernos (los que ya existan con el mismo identificador se reemplazan). Devuelve cuántos trae. */
+    @Synchronized fun importZip(inp: java.io.InputStream): Int {
+        var n = 0; val incoming = ArrayList<NotebookMeta>()
+        java.util.zip.ZipInputStream(inp).use { z ->
+            var e = z.nextEntry
+            while (e != null) {
+                val name = File(e.name).name   // solo el nombre: nada puede escribirse fuera de la carpeta
+                if (name == "index.json") incoming += runCatching { json.decodeFromString<List<NotebookMeta>>(z.readBytes().decodeToString()) }.getOrDefault(emptyList())
+                else if (!e.isDirectory && name.isNotBlank()) { File(dir, name).outputStream().use { z.copyTo(it) }; if (name.endsWith(".json")) n++ }
+                e = z.nextEntry
+            }
+        }
+        val ids = incoming.map { it.id }.toSet(); saveIndex(list().filter { it.id !in ids } + incoming); return n
+    }
 
     /** Si el archivo principal está dañado, se abre la copia del guardado anterior. */
     fun load(id: String): Notebook = runCatching { json.decodeFromString<Notebook>(File(dir, "$id.json").readText()) }

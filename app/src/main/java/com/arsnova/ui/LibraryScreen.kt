@@ -81,7 +81,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
                 Text("Notas", style = MaterialTheme.typography.headlineLarge.copy(fontSize = 44.sp, lineHeight = 48.sp), modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 2.dp).weight(1f))
                 Pill(Modifier.padding(top = 20.dp, end = 16.dp)) { IconButton(onSettings) { Icon(ArsIcons.Settings, "Ajustes") } }
             }
-            Text(if (items.size == 1) "1 cuaderno" else "${items.size} cuadernos", color = Ars.Muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 26.dp, bottom = 12.dp))
+            Text(items.count { it.folder != Repo.TRASH }.let { if (it == 1) "1 cuaderno" else "$it cuadernos" }, color = Ars.Muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 26.dp, bottom = 12.dp))
             OutlinedTextField(q, { q = it }, Modifier.padding(horizontal = 20.dp).fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(50),
                 placeholder = { Text("Buscar en títulos y escritura a mano") }, colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Ars.Card, focusedContainerColor = Ars.CardHigh, unfocusedBorderColor = Color.Transparent, focusedBorderColor = Color.Transparent, cursorColor = Ars.Text), leadingIcon = { Icon(ArsIcons.Search, null) })
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -89,11 +89,15 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
                     val cb by androidx.compose.animation.animateColorAsState(if (on) Ars.Text else Ars.PillFill, label = "chip")
                     val ct by androidx.compose.animation.animateColorAsState(if (on) Ars.Bg else Ars.Text, label = "chipT")
                     Box(Modifier.bounceClick { folder = f }.clip(RoundedCornerShape(50)).background(cb).padding(horizontal = 16.dp, vertical = 9.dp)) { Text(f.ifEmpty { "Todas" }, color = ct, style = MaterialTheme.typography.labelLarge) } }
+                if (items.any { it.folder == Repo.TRASH }) { val on = folder == Repo.TRASH
+                    Row(Modifier.bounceClick { folder = if (on) "" else Repo.TRASH }.clip(RoundedCornerShape(50)).background(if (on) Ars.Text else Ars.PillFill).padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(ArsIcons.Trash, null, Modifier.size(16.dp), tint = if (on) Ars.Bg else Ars.Text); Spacer(Modifier.width(6.dp))
+                        Text("Papelera · ${items.count { it.folder == Repo.TRASH }}", color = if (on) Ars.Bg else Ars.Text, style = MaterialTheme.typography.labelLarge) } }
                 Row(Modifier.bounceClick { newFolder = true }.clip(RoundedCornerShape(50)).border(1.dp, Ars.Line, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(ArsIcons.Add, null, Modifier.size(16.dp), tint = Ars.Muted); Spacer(Modifier.width(6.dp)); Text("Carpeta", color = Ars.Muted, style = MaterialTheme.typography.labelLarge) }
             }
-            val shown = items.filter { (folder.isEmpty() || it.folder == folder) && (q.isBlank() || it.title.contains(q, true) || it.text.contains(q, true)) }
-            if (items.isEmpty()) Column(Modifier.fillMaxSize().padding(bottom = 120.dp), Arrangement.Center, Alignment.CenterHorizontally) {
+            val shown = items.filter { (if (folder.isEmpty()) it.folder != Repo.TRASH else it.folder == folder) && (q.isBlank() || it.title.contains(q, true) || it.text.contains(q, true)) }
+            if (items.none { it.folder != Repo.TRASH } && folder != Repo.TRASH) Column(Modifier.fillMaxSize().padding(bottom = 120.dp), Arrangement.Center, Alignment.CenterHorizontally) {
                 Box(Modifier.size(72.dp).clip(squircle(24)).background(Ars.Card), contentAlignment = Alignment.Center) { Icon(ArsIcons.Pen, null, Modifier.size(30.dp), tint = Ars.Muted) }
                 Text("Tu primera nota te espera", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 18.dp))
                 Text("Toca «Nueva nota» para empezar a escribir.", color = Ars.Muted, modifier = Modifier.padding(top = 4.dp))
@@ -104,9 +108,14 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
                     Box(Modifier.animateItem().revealOnAppear(m.id, seen, cascade = true)) {
                         NotebookCard(repo, m, Modifier.press3D().combinedClickable(remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, null, onClick = { onOpen(m.id) }, onLongClick = { menuFor = m }))
                         DropdownMenu(menuFor?.id == m.id, { menuFor = null }) {
-                            DropdownMenuItem({ Text("Renombrar") }, { renaming = m; menuFor = null })
-                            DropdownMenuItem({ Text("Mover a carpeta") }, { moving = m; menuFor = null })
-                            DropdownMenuItem({ Text("Eliminar", color = Brand) }, { repo.delete(m.id); items = items - m; menuFor = null })
+                            if (m.folder == Repo.TRASH) {
+                                DropdownMenuItem({ Text("Restaurar") }, { repo.setFolder(m.id, ""); items = items.map { if (it.id == m.id) it.copy(folder = "") else it }; menuFor = null })
+                                DropdownMenuItem({ Text("Eliminar definitivamente", color = Brand) }, { repo.delete(m.id); items = items - m; menuFor = null })
+                            } else {
+                                DropdownMenuItem({ Text("Renombrar") }, { renaming = m; menuFor = null })
+                                DropdownMenuItem({ Text("Mover a carpeta") }, { moving = m; menuFor = null })
+                                DropdownMenuItem({ Text("Mover a la papelera", color = Brand) }, { repo.setFolder(m.id, Repo.TRASH); items = items.map { if (it.id == m.id) it.copy(folder = Repo.TRASH) else it }; menuFor = null })
+                            }
                         }
                     }
                 }

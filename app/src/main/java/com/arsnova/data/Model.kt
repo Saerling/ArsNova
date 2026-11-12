@@ -63,6 +63,13 @@ class Stroke(
         path?.offset(dx, dy); b?.offset(dx, dy)
     }
 
+    /** Gira el trazo alrededor de (cx, cy). */
+    fun rotate(cx: Float, cy: Float, deg: Float) {
+        val a = Math.toRadians(deg.toDouble()); val co = Math.cos(a).toFloat(); val si = Math.sin(a).toFloat(); var i = 0
+        while (i + 1 < pts.size) { val dx = pts[i] - cx; val dy = pts[i + 1] - cy; pts[i] = cx + dx * co - dy * si; pts[i + 1] = cy + dx * si + dy * co; i += 3 }
+        path = null; b = null
+    }
+
     /** Escala el trazo (puntos y grosor) alrededor de (ox, oy). */
     fun scale(ox: Float, oy: Float, f: Float) {
         var i = 0
@@ -90,6 +97,11 @@ class Item(val id: Long, val kind: Int, var x: Float, var y: Float, var w: Float
     var text: String = "", val file: String? = null, var size: Float = 40f, var color: Int = 0xFF1D1B18.toInt(), var align: Int = 0, var bold: Boolean = false) {
     fun bounds() = RectF(x, y, x + w, y + h)
     fun offset(dx: Float, dy: Float) { x += dx; y += dy }
+    /** Los textos e imágenes no se inclinan: giran su posición y quedan derechos. */
+    fun rotate(cx: Float, cy: Float, deg: Float) {
+        val a = Math.toRadians(deg.toDouble()); val mx = x + w / 2 - cx; val my = y + h / 2 - cy
+        x = cx + (mx * Math.cos(a) - my * Math.sin(a)).toFloat() - w / 2; y = cy + (mx * Math.sin(a) + my * Math.cos(a)).toFloat() - h / 2
+    }
     fun scale(ox: Float, oy: Float, f: Float) { x = ox + (x - ox) * f; y = oy + (y - oy) * f; w *= f; h *= f; size *= f }
 }
 
