@@ -38,8 +38,24 @@ class InkView(context: Context) : View(context) {
     var eraserPixel = false
     var tapeWidth = 40f
     var tapePattern = 0
-    /** Cinta libre: sigue el trazo en vez de ir recta entre los dos extremos. */
-    var tapeFree = false
+    /** Cinta: 0 recta (de extremo a extremo), 1 libre (sigue el trazo), 2 rectángulo (se arrastra de esquina a esquina). */
+    var tapeMode = 0
+    private val tapeFree get() = tapeMode == 1
+    /** Cinta recta solo horizontal o vertical. */
+    var tapeAxis = false
+    private var rectH = 2f
+    /** Borrador: 0 todo, 1 solo resaltador, 2 solo cinta. */
+    var eraseOnly = 0
+    var onErased: () -> Unit = {}
+    var laserDot = false; var laserMs = 700f; var laserWidth = 8f
+    /** Lazo rectangular y qué puede seleccionar: 1 escritura, 2 resaltador, 4 cinta, 8 imágenes y texto. */
+    var lassoRect = false; var lassoMask = 15
+    private var lx0 = 0f; private var ly0 = 0f
+    /** Forma que se dibuja arrastrando con el lápiz: 0 ninguna, 1 línea, 2 flecha, 3 rectángulo, 4 elipse, 5 triángulo, 6 rombo. */
+    var shape = 0
+    /** Resaltador con regla: cada trazo es una recta de donde se apoya a donde se suelta. */
+    var hlStraight = false
+    private var shaping = false
     private val laser = ArrayList<FloatArray>()   // x, y, instante (ms desde laserT0), 1 = empieza trazo
     private var laserT0 = 0L
     private fun laserNow(): Float { val t = android.os.SystemClock.uptimeMillis(); if (laser.isEmpty()) laserT0 = t; return (t - laserT0).toFloat() }
@@ -464,16 +480,20 @@ class InkView(context: Context) : View(context) {
             knob.style = Paint.Style.STROKE; knob.color = dash.color; c.drawCircle(selBounds.centerX(), ry, dp(8f) / scale / k, knob)
             c.restore()
         }
-        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
+        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
         if (laser.isNotEmpty()) {
             val now = (android.os.SystemClock.uptimeMillis() - laserT0).toFloat()
-            laser.removeAll { now - it[2] > 700f }
+            laser.removeAll { now - it[2] > laserMs && !(laserDot && mode == Mode.LASER) }
             for (k in 1 until laser.size) { val a0 = laser[k - 1]; val a1 = laser[k]; if (a1[3] == 1f) continue
-                val f = (1f - (now - a1[2]) / 700f).coerceIn(0f, 1f)
-                laserPaint.color = (color and 0x00FFFFFF) or ((90 * f).toInt() shl 24); laserPaint.strokeWidth = dp(10f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint)
-                laserPaint.color = (0x00FFFFFF) or ((230 * f).toInt() shl 24); laserPaint.strokeWidth = dp(3f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint) }
+                if (laserDot) continue; val f = (1f - (now - a1[2]) / laserMs).coerceIn(0f, 1f)
+                laserPaint.color = (color and 0x00FFFFFF) or ((90 * f).toInt() shl 24); laserPaint.strokeWidth = dp(laserWidth * 1.25f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint)
+                laserPaint.color = (0x00FFFFFF) or ((230 * f).toInt() shl 24); laserPaint.strokeWidth = dp(laserWidth * 0.375f); c.drawLine(a0[0], a0[1], a1[0], a1[1], laserPaint) }
+            if (laserDot) laser.lastOrNull()?.let { a -> val f = if (mode == Mode.LASER) 1f else (1f - (now - a[2]) / laserMs).coerceIn(0f, 1f)
+                laserPaint.style = Paint.Style.FILL; laserPaint.color = (color and 0x00FFFFFF) or ((110 * f).toInt() shl 24); c.drawCircle(a[0], a[1], dp(laserWidth * 1.3f), laserPaint)
+                laserPaint.color = (color and 0x00FFFFFF) or ((255 * f).toInt() shl 24); c.drawCircle(a[0], a[1], dp(laserWidth * 0.7f), laserPaint)
+                laserPaint.color = 0x00FFFFFF or ((235 * f).toInt() shl 24); c.drawCircle(a[0], a[1], dp(laserWidth * 0.32f), laserPaint); laserPaint.style = Paint.Style.STROKE }
             postInvalidateOnAnimation()
         }
         if (mode == Mode.ERASE && ex >= 0) c.drawCircle(ex, ey, eraserRadius, cursor)
@@ -548,6 +568,7 @@ class InkView(context: Context) : View(context) {
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
+                shaping = (shape > 0 && !curHl) || (curHl && hlStraight); if (shaping) { snapped = true; sx0 = x; sy0 = y }
                 euroX.reset(); euroY.reset(); euroX.filter(x, 0.004f); euroY.filter(y, 0.004f); euroT = e.eventTime
                 rawX = x; rawY = y; rawP = pressure(e.getPressure(i)); add(x, y, rawP); sigX = sx; sigY = sy; postSnap(); onInking(true)
                 downSX = sx; downSY = sy; removeCallbacks(holdToErase); if (isStylus && holdErase && !eraserBtn) postDelayed(holdToErase, 480)
@@ -555,7 +576,7 @@ class InkView(context: Context) : View(context) {
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
             Tool.TAPE -> { val hitT = tapeAt(x, y)
                 if (hitT != null) { hitT.hid = !hitT.hid; repaint(page!!, hitT.bounds); mode = Mode.NONE; onChange() }
-                else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
+                else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; shaping = false; rectH = 2f; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
             Tool.LASER -> { mode = Mode.LASER; val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 1f)) }
             Tool.TEXT -> { mode = Mode.TAP; tdx = sx; tdy = sy; lastX = x; lastY = y }
             Tool.LASSO -> if (hasSelection() && hypot(x - selBounds.centerX(), y - (selBounds.top - dp(34f) / scale)) < dp(22f) / scale) {
@@ -563,7 +584,7 @@ class InkView(context: Context) : View(context) {
                 else if (hasSelection() && RectF(selBounds).apply { inset(-30f / scale, -30f / scale) }.contains(x, y)) {
                 mode = Mode.MOVE_SEL; lastX = x; lastY = y; selF = 1f; rotating = false
                 resizing = hypot(x - selBounds.right, y - selBounds.bottom) < dp(26f) / scale }
-                else { clearSelection(); mode = Mode.LASSO; lasso.reset(); lasso.moveTo(x, y) }
+                else { clearSelection(); mode = Mode.LASSO; lasso.reset(); lasso.moveTo(x, y); lx0 = x; ly0 = y }
         }
         invalidate()
     }
@@ -597,7 +618,12 @@ class InkView(context: Context) : View(context) {
         when (mode) {
             Mode.DRAW -> {
                 if (hypot(sx - downSX, sy - downSY) > dp(5f)) removeCallbacks(holdToErase)
-                if (curStyle == 11 && !tapeFree) { curN = 3; add(x, y, 0.5f); return }
+                if (curStyle == 11 && !tapeFree) {
+                    if (tapeMode == 2) { val l = minOf(sx0, x); val r = maxOf(sx0, x); val t = minOf(sy0, y); val b = maxOf(sy0, y)
+                        rectH = (b - t).coerceAtLeast(2f); curN = 0; add(l, (t + b) / 2, 0.5f); add(r, (t + b) / 2, 0.5f) }
+                    else { curN = 3; if (!tapeAxis) add(x, y, 0.5f) else if (kotlin.math.abs(x - cur[0]) >= kotlin.math.abs(y - cur[1])) add(x, cur[1], 0.5f) else add(cur[0], y, 0.5f) }
+                    return }
+                if (shaping) { shapeTo(x, y); return }
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 rawX = x; rawY = y; rawP = pressure(pr)
@@ -616,8 +642,8 @@ class InkView(context: Context) : View(context) {
                 add(gx, gy, pressure(pr))
             }
             Mode.ERASE -> { ex = sx; ey = sy; eraseAt(x, y) }
-            Mode.LASER -> { val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 0f)) }
-            Mode.LASSO -> lasso.lineTo(x, y)
+            Mode.LASER -> { if (laserDot) laser.clear(); val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 0f)) }
+            Mode.LASSO -> if (lassoRect) { lasso.reset(); lasso.addRect(minOf(lx0, x), minOf(ly0, y), maxOf(lx0, x), maxOf(ly0, y), Path.Direction.CW) } else lasso.lineTo(x, y)
             Mode.TAP -> if (hypot(sx - tdx, sy - tdy) > 16f) mode = Mode.NONE
             Mode.MOVE_SEL -> if (rotating) selA = Math.toDegrees((kotlin.math.atan2(y - selBounds.centerY(), x - selBounds.centerX()) - rotA0).toDouble()).toFloat()
                 else if (resizing) selF = (hypot(x - selBounds.left, y - selBounds.top) / hypot(selBounds.width(), selBounds.height()).coerceAtLeast(1f)).coerceIn(0.15f, 8f)
@@ -633,6 +659,25 @@ class InkView(context: Context) : View(context) {
         cur[curN++] = x; cur[curN++] = y; cur[curN++] = p
     }
 
+    /** Forma elegida, de donde se apoyó el lápiz hasta donde está ahora. */
+    private fun shapeTo(x1: Float, y1: Float) {
+        val x0 = sx0; val y0 = sy0; curN = 0
+        fun seg(ax: Float, ay: Float, bx: Float, by: Float) { val n = (hypot(bx - ax, by - ay) / 4f).toInt().coerceIn(1, 400)
+            val s0 = if (curN >= 3 && cur[curN - 3] == ax && cur[curN - 2] == ay) 1 else 0
+            for (k in s0..n) { val t = k.toFloat() / n; add(ax + (bx - ax) * t, ay + (by - ay) * t, 0.5f) } }
+        fun poly(vararg q: Float) { var i = 0; while (i + 3 < q.size) { seg(q[i], q[i + 1], q[i + 2], q[i + 3]); i += 2 } }
+        val l = minOf(x0, x1); val r = maxOf(x0, x1); val t = minOf(y0, y1); val b = maxOf(y0, y1); val cx = (l + r) / 2; val cy = (t + b) / 2
+        when (if (curHl) 1 else shape) {
+            2 -> { seg(x0, y0, x1, y1); val a = kotlin.math.atan2(y1 - y0, x1 - x0); val h = (hypot(x1 - x0, y1 - y0) * 0.18f).coerceIn(10f, 46f)
+                val ax = x1 - h * kotlin.math.cos(a - 0.45f); val ay = y1 - h * kotlin.math.sin(a - 0.45f); val bx = x1 - h * kotlin.math.cos(a + 0.45f); val by = y1 - h * kotlin.math.sin(a + 0.45f)
+                seg(x1, y1, ax, ay); seg(ax, ay, x1, y1); seg(x1, y1, bx, by) }
+            3 -> poly(l, t, r, t, r, b, l, b, l, t)
+            4 -> { val n = 96; for (i in 0..n) { val a = (2 * Math.PI * i / n).toFloat(); add(cx + (r - l) / 2 * kotlin.math.cos(a), cy + (b - t) / 2 * kotlin.math.sin(a), 0.5f) } }
+            5 -> if (y1 >= y0) poly(cx, t, r, b, l, b, cx, t) else poly(cx, b, r, t, l, t, cx, b)
+            6 -> poly(cx, t, r, cy, cx, b, l, cy, cx, t)
+            else -> seg(x0, y0, x1, y1)
+        }
+    }
     private fun line(x1: Float, y1: Float) {
         var avg = 0f; var k = 0; var i = 2; while (i < curN) { avg += cur[i]; k++; i += 3 }
         val p = if (k > 0) (avg / k) else 0.5f
@@ -646,6 +691,7 @@ class InkView(context: Context) : View(context) {
         for (idx in p.strokes.indices.reversed()) {
             val s = p.strokes[idx]; val b = s.bounds
             if (x < b.left - r || x > b.right + r || y < b.top - r || y > b.bottom + r) continue
+            if (tool == Tool.ERASER && ((eraseOnly == 1 && !s.hl) || (eraseOnly == 2 && s.style != 11))) continue
             val lim = (r + s.width / 2).let { it * it }; val a = s.pts
             if (eraserPixel && s.style != 11) {
                 // Borrador de píxel: parte el trazo en los tramos que quedan fuera del círculo.
@@ -670,7 +716,7 @@ class InkView(context: Context) : View(context) {
             Mode.DRAW -> if (curN >= 3 && !(curStyle == 11 && (curN <= 3 || (!tapeFree && hypot(cur[curN - 3] - cur[0], cur[curN - 2] - cur[1]) * scale < dp(6f))))) {
                 // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
                 if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
-                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11 && !tapeFree) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
+                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else penWidth, curHl, if (curStyle == 11 && !tapeFree) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 Ink.darkPaper = Ink.isDark(p.paper)
                 pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
@@ -678,7 +724,7 @@ class InkView(context: Context) : View(context) {
                 if (p === pages.lastOrNull()) onNeedPage()
                 curN = 0; onChange()
             }
-            Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty() || pieces.isNotEmpty()) { push(if (eraserPixel) Op.Replace(ArrayList(erased), ArrayList(pieces)) else Op.Remove(ArrayList(erased))); erased.clear(); pieces.clear(); onChange() } }
+            Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty() || pieces.isNotEmpty()) { push(if (eraserPixel) Op.Replace(ArrayList(erased), ArrayList(pieces)) else Op.Remove(ArrayList(erased))); erased.clear(); pieces.clear(); if (tool == Tool.ERASER) { if (isAttachedToWindow) post { onErased() } else onErased() }; onChange() } }
             Mode.LASER -> postInvalidateOnAnimation()
             Mode.LASSO -> {
                 lasso.close()
@@ -692,11 +738,12 @@ class InkView(context: Context) : View(context) {
                     else p.items.lastOrNull { it.bounds().contains(lb.centerX(), lb.centerY()) }?.let { selIt += it; selBounds.union(it.bounds()) }
                 } else {
                     for (s in p.strokes) {
+                        if (lassoMask and (if (s.style == 11) 4 else if (s.hl) 2 else 1) == 0) continue
                         var inside = 0; var tot = 0; var j = 0
                         while (j < s.pts.size) { tot++; if (rg.contains(s.pts[j].toInt(), s.pts[j + 1].toInt())) inside++; j += 3 }
                         if (tot > 0 && inside * 2 >= tot) { sel += s; selBounds.union(s.bounds) }
                     }
-                    for (it in p.items) { val b = it.bounds(); if (rg.contains(b.centerX().toInt(), b.centerY().toInt())) { selIt += it; selBounds.union(b) } }
+                    if (lassoMask and 8 != 0) for (it in p.items) { val b = it.bounds(); if (rg.contains(b.centerX().toInt(), b.centerY().toInt())) { selIt += it; selBounds.union(b) } }
                 }
                 lasso.reset(); cacheDirty = true; notifyState()
             }
@@ -753,6 +800,15 @@ class InkView(context: Context) : View(context) {
     fun tapesAll(reveal: Boolean) { val p = page ?: return; var any = false
         for (s in p.strokes) if (s.style == 11 && s.hid != reveal) { s.hid = reveal; any = true }
         if (any) { refresh(); onChange() } }
+    /** Quita de la página (con deshacer) los trazos que cumplan la condición; `items` se lleva también imágenes y textos. */
+    private fun removeWhere(items: Boolean, f: (Stroke) -> Boolean) { val p = page ?: return
+        val gone = p.strokes.withIndex().filter { f(it.value) }.map { it.index to it.value }.asReversed()
+        val its = if (items) p.items.withIndex().map { it.index to it.value }.asReversed() else emptyList()
+        if (gone.isEmpty() && its.isEmpty()) return
+        clearSelection(); p.strokes.removeAll { f(it) }; if (items) p.items.clear()
+        push(Op.Remove(ArrayList(gone), ArrayList(its))); refresh(); onChange() }
+    fun clearPage() = removeWhere(true) { true }
+    fun removeTapes() = removeWhere(false) { it.style == 11 }
     fun tapeCount() = page?.strokes?.count { it.style == 11 } ?: 0
 
     private fun cancelDraw() {

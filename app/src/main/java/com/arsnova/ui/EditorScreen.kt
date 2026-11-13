@@ -92,6 +92,10 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     if (slot.tool == Tool.PEN && lastPen != active) lastPen = active
     var grouped by remember { mutableStateOf(prefs.getBoolean("grouped", false)) }
     var barArt by remember { mutableStateOf(prefs.getBoolean("barArt", true)) }
+    var sync by remember { mutableIntStateOf(0) }          // sube cuando un panel cambia una preferencia que el lienzo debe releer
+    var shapeTool by remember { mutableIntStateOf(0) }     // forma a dibujar con el lápiz (0 = escritura normal)
+    var wheelAll by remember { mutableStateOf(prefs.getBoolean("wheelAll", false)) }     // el dial ofrece todos los tipos de lápiz, no solo los de la barra
+    var wheelPen by remember { mutableIntStateOf(0) }      // lápiz que cambia de tipo al elegir en el dial uno que no está en la barra
     var editBar by remember { mutableStateOf(false) }
     var zoom by remember { mutableIntStateOf(100) }
     var zoomMenu by remember { mutableStateOf(false) }
@@ -101,7 +105,12 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     val tool = if (textTool) Tool.TEXT else slot.tool
     val color = slot.color
     fun updSlot(s: Slot) { slots = slots.toMutableList().also { it[active] = s }; Slots.save(prefs, slots) }
-    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings && slots[i].tool != Tool.LASSO && slots[i].tool != Tool.LASER else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
+    /** Mover una herramienta de sitio (arrastrándola en la barra) sin perder cuál está en uso. */
+    fun moveSlot(f: Int, t: Int) { if (f == t || f !in slots.indices || t !in slots.indices) return
+        fun map(i: Int) = when { i == f -> t; f < t && i in (f + 1)..t -> i - 1; t < f && i in t until f -> i + 1; else -> i }
+        val a = map(active); val lp = map(lastPen); slots = slots.toMutableList().also { it.add(t, it.removeAt(f)) }; active = a; lastPen = lp
+        Slots.save(prefs, slots); prefs.edit().putInt("slot", a).apply() }
+    fun pick(i: Int) { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); textTool = false; if (i == active) showSettings = !showSettings else { active = i; showSettings = false; prefs.edit().putInt("slot", i).apply() } }
     fun setColor(c: Int) { if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) updSlot(slot.copy(color = (c and 0x00FFFFFF) or (slot.color and 0xFF000000.toInt()).let { if (it == 0) 0xFF000000.toInt() else it })) else { val k = lastPen.coerceIn(0, slots.size - 1); if (slots[k].tool == Tool.PEN) { active = k; updSlot(slots[k].copy(color = c)) } }; if (hasSel) view.recolorSelection(c) }
     var lastTap by remember { mutableLongStateOf(0L) }
     var inking by remember { mutableStateOf(false) }
@@ -176,6 +185,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         if (indexing != null) { indexing = null; dirty++ }; search() } else { view.marks = emptyList(); view.markSel = -1 } }
     LaunchedEffect(query) { if (finding) { delay(220); search() } }
 
+    val syncN = sync
     SideEffect {
         view.onState = { u, r, s -> canUndo = u; canRedo = r; hasSel = s }
         view.onChange = { dirty++ }
@@ -195,7 +205,13 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.penWidth = if (slot.tool == Tool.PEN) slot.width else view.penWidth
         view.hlWidth = if (slot.tool == Tool.HIGHLIGHTER) slot.width else view.hlWidth
         if (slot.tool == Tool.ERASER) { view.eraserRadius = slot.width; view.eraserPixel = slot.style == 1 }
-        if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style; view.tapeFree = slot.free }
+        if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style; view.tapeMode = slot.mode }
+        if (slot.tool == Tool.LASER) { view.laserDot = slot.style == 1; view.laserWidth = slot.width.coerceIn(3f, 24f) }
+        view.eraseOnly = prefs.getInt("eraseOnly", 0) + 0 * syncN; view.tapeAxis = prefs.getBoolean("tapeAxis", false); view.laserMs = prefs.getFloat("laserSecs", 0.7f) * 1000f
+        view.lassoRect = prefs.getBoolean("lassoRect", false); view.lassoMask = prefs.getInt("lassoMask", 15)
+        view.shape = if (slot.tool == Tool.PEN && !textTool) shapeTool else 0
+        view.hlStraight = slot.tool == Tool.HIGHLIGHTER && slot.mode == 1
+        view.onErased = { if (prefs.getBoolean("eraseBack", false) && slot.tool == Tool.ERASER) { active = lastPen.coerceIn(0, slots.size - 1); prefs.edit().putInt("slot", active).apply() } }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
         view.tapGestures = prefs.getBoolean("tapGestures", true); view.holdErase = prefs.getBoolean("holdErase", true); view.zoomLock = zoomLock; view.onZoom = { zoom = it }; view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
     }
@@ -332,6 +348,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             if (lines) LinesSheet(nb.pages[pageIdx].template, { t -> nb.pages.forEach { it.template = t }; view.refresh(); dirty++; lines = false }) { lines = false }
             val panelAlign = dockAlign(dock)
             val panelPad = dockPad(dock, topPad, barArt)
+            // el panel nunca es más alto que el hueco libre entre la barra superior y la de herramientas
+            val panelMax = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - topPad - (if (dock == 0 || dock == 2) (if (barArt) 148.dp else 98.dp) else 0.dp) - 40.dp).coerceIn(260.dp, 640.dp)
             Column(Modifier.align(panelAlign).navigationBarsPadding().padding(panelPad).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
                 AnimatedVisibility(picker != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
@@ -342,10 +360,13 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         else if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) { updSlot(slot.copy(color = c)); if (hasSel) view.recolorSelection(c) } else setColor(c)
                     }, { c -> swatches = (swatches.drop(1) + c); Slots.saveSwatches(prefs, swatches) }) { picker = null }
                 }
+                AnimatedVisibility(shapeTool > 0 && slot.tool == Tool.PEN && !textTool && !collapsed && !showSettings && picker == null) { ShapeStrip(shapeTool) { shapeTool = it } }
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
-                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot, onTapeAll = { view.tapesAll(it) },
+                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot, maxH = panelMax,
+                        onAction = { a -> when (a) { "sync" -> sync++; "tapeShow" -> view.tapesAll(true); "tapeHide" -> view.tapesAll(false); "tapeClear" -> view.removeTapes(); "clearPage" -> view.clearPage()
+                            "tapeClearAll" -> { nb.pages.forEach { pg -> pg.strokes.removeAll { it.style == 11 } }; view.refresh(); dirty++ } } },
                         onFav = { slots = slots + slot.copy(); Slots.save(prefs, slots); android.widget.Toast.makeText(ctx, "Guardado como favorito: está en la barra y en la rueda", android.widget.Toast.LENGTH_SHORT).show() }) { picker = -1 }
                 }
                 AnimatedVisibility(hasSel, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 520f), 0.85f),
@@ -423,14 +444,30 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Imagen") }, { close(); pickImg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, leadingIcon = { Icon(ArsIcons.Image, null) })
                             DropdownMenuItem({ Text("Página") }, { close(); nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++ }, leadingIcon = { Icon(ArsIcons.PageAdd, null) })
                             DropdownMenuItem({ Text("Líneas y cuadrículas") }, { close(); lines = true }, leadingIcon = { Icon(ArsIcons.Grid, null) })
+                            DropdownMenuItem({ Text("Formas") }, { close(); textTool = false; showSettings = false; if (shapeTool == 0) shapeTool = 3
+                                if (slot.tool != Tool.PEN) { active = lastPen.coerceIn(0, slots.size - 1); prefs.edit().putInt("slot", active).apply() } }, leadingIcon = { Icon(ArsIcons.Shapes, null) })
                             DropdownMenuItem({ Text("Stickers") }, { close(); stickers = true }, leadingIcon = { Icon(ArsIcons.Smile, null) })
                         }
-                    }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false; picker = null }, dock = dock, handle = handle, grouped = grouped, penIdx = lastPen, art = barArt)
+                    }, onMore = { palMenu = true }, onCollapse = { collapsed = true; showSettings = false; picker = null }, dock = dock, handle = handle, grouped = grouped, penIdx = lastPen, art = barArt, onMove = ::moveSlot)
             }
+            // abrir el dial o el editor de barra cierra lo demás (antes quedaban encima unos de otros)
+            LaunchedEffect(wheelAt != null, editBar) { if (wheelAt != null || editBar) { palMenu = false; picker = null; showSettings = false; lines = false }
+                if (wheelAt != null) wheelPen = (if (slot.tool == Tool.PEN) active else lastPen).coerceIn(0, slots.size - 1) }
             wheelAt?.let { at ->
-                ToolWheel(at, slots, if (textTool) -1 else active, swatches, canUndo, canRedo,
-                    onSlot = { j -> textTool = false; active = j; showSettings = false; prefs.edit().putInt("slot", j).apply() },
-                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo, onEdit = { editBar = true }) { wheelAt = null } }
+                // «Todos los lápices»: el anillo ofrece cada tipo de lápiz y herramienta, esté o no en la barra
+                fun same(a: Slot, b: Slot) = a.tool == b.tool && (a.tool != Tool.PEN || a.style == b.style)
+                val wp = slots.getOrNull(wheelPen)?.takeIf { it.tool == Tool.PEN }
+                val catalog = if (!wheelAll) slots else Slots.penOrder.map { st -> slots.firstOrNull { it.tool == Tool.PEN && it.style == st } ?: (wp?.copy(style = st) ?: Slots.fresh(Tool.PEN, st)) } +
+                    listOf(Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.TAPE, Tool.LASER).map { t -> slots.firstOrNull { it.tool == t } ?: Slots.fresh(t) }
+                key(wheelAll) { ToolWheel(at, catalog, if (textTool) -1 else if (!wheelAll) active else catalog.indexOfFirst { same(it, slot) }, swatches, canUndo, canRedo,
+                    onSlot = { j -> textTool = false; showSettings = false
+                        if (!wheelAll) active = j else catalog.getOrNull(j)?.let { c -> val k = slots.indexOfFirst { same(it, c) }
+                            if (k >= 0) active = k
+                            else if (wp != null) { slots = slots.toMutableList().also { it[wheelPen] = it[wheelPen].copy(style = c.style) }; active = wheelPen; Slots.save(prefs, slots) }  // el lápiz en uso cambia de tipo
+                            else { slots = slots + c; active = slots.size - 1; Slots.save(prefs, slots) } }
+                        prefs.edit().putInt("slot", active).apply() },
+                    onColor = { setColor(it) }, onPicker = { picker = -1 }, onWidth = { w -> updSlot(slots[active.coerceIn(0, slots.size - 1)].copy(width = w)) }, onUndo = view::undo, onRedo = view::redo,
+                    onEdit = { editBar = true }, all = wheelAll, onAll = { wheelAll = it; prefs.edit().putBoolean("wheelAll", it).apply() }) { wheelAt = null } } }
             if (latexView) {
                 val pg = nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)]
                 var tex by remember(pg) { mutableStateOf(pg.tex) }

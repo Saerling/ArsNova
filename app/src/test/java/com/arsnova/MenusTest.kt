@@ -69,20 +69,41 @@ class MenusTest {
             desc(s.name); desc(s.name)
             when (s.tool) {
                 Tool.PEN -> { has("Grosor"); if (s.style == 0) shot("menu-pen") }
-                Tool.HIGHLIGHTER -> has("Grosor")
-                Tool.ERASER -> { tap("Píxel"); tap("Objeto"); has("Mantener para borrar") }
-                Tool.TAPE -> { has("Recta"); tap("Libre"); tap("Zigzag"); tap("Ondas"); tap("Mostrar todas"); shot("menu-tape"); tap("Ocultar todas"); tap("Recta"); tap("Liso") }
+                Tool.HIGHLIGHTER -> { has("Grosor"); tap("Trazar en línea recta"); tap("Trazar en línea recta") }
+                Tool.ERASER -> { tap("Píxel"); tap("Objeto"); has("Qué borra"); tap("Resaltador"); tap("Cinta"); tap("Todo"); tap("Volver al lápiz"); tap("Volver al lápiz"); has("Mantener para borrar")
+                    tap("Limpiar la página"); rule.onNodeWithContentDescription("Deshacer").assertIsEnabled().performClick(); shot("menu-eraser") }
+                Tool.TAPE -> { has("Recta"); tap("Libre"); tap("Rectángulo"); tap("Zigzag"); tap("Ondas"); tap("Mostrar todas"); shot("menu-tape"); tap("Ocultar todas"); tap("Recta"); tap("Solo horizontal"); tap("Solo horizontal"); tap("Liso")
+                    tap("Quitar las de esta página"); rule.onNodeWithContentDescription("Deshacer").performClick(); tap("De todas") }
+                Tool.LASSO -> { tap("Rectangular"); tap("Escritura"); tap("Escritura"); tap("Cinta"); tap("Cinta"); shot("menu-lasso"); tap("Libre") }
+                Tool.LASER -> { tap("Punto"); has("Duración"); shot("menu-laser"); tap("Línea") }
                 else -> {}
             }
-            desc(if (s.tool == Tool.LASSO) "Borrador" else "Lazo") // otra herramienta: cierra el panel (que repite nombres de lápiz en su selector de estilo)
+            back() // Atrás cierra el panel (que repite nombres de lápiz en su selector de estilo)
         }
         step("Barra › Lazo visible") { rule.onNodeWithContentDescription("Lazo").assertExists().assertIsDisplayed() }
         step("Barra › Deshacer / Rehacer") { rule.onNodeWithContentDescription("Deshacer").assertExists(); rule.onNodeWithContentDescription("Rehacer").assertExists() }
         step("Barra › color rápido") { desc("Bolígrafo"); desc("Más colores"); back() }
+        step("Insertar › Formas") { desc("Insertar"); tap("Formas"); for (f in listOf("Línea", "Flecha", "Elipse", "Triángulo", "Rombo", "Rectángulo")) desc(f); shot("menu-shapes"); desc("Salir de formas")
+            assertTrue("la tira de formas sigue abierta", rule.onAllNodesWithContentDescription("Salir de formas").fetchSemanticsNodes().isEmpty()) }
         for ((item, close) in listOf("Stickers" to "Cerrar", "Líneas y cuadrículas" to null, "Página" to null))
             step("Insertar › $item") { desc("Insertar"); has("Imagen"); tap(item); if (close != null) { tap(close); gone(close) } else if (item.startsWith("Líneas")) back() }
         step("⋯ › Editar barra") { desc("Bolígrafo"); desc("Opciones de la barra"); shot("menu-bar"); tap("Editar barra"); shot("menu-editbar"); has("Editar barra y rueda"); tap("Agrupar los lápices"); tap("Agrupar los lápices")
-            tap("Lápices con forma"); shot("bar-icons"); tap("Lápices con forma"); tap("Listo"); gone("Editar barra y rueda") }
+            tap("Lápices con forma"); shot("bar-icons"); tap("Lápices con forma")
+            // mantener pulsada la primera fila y bajarla dos puestos: el Bolígrafo pasa a ser la tercera herramienta
+            rule.onAllNodesWithText("Bolígrafo", substring = true).onFirst().performTouchInput { down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(0f, 30f)); moveBy(androidx.compose.ui.geometry.Offset(0f, 90f)); up() }
+            rule.waitForIdle(); shot("menu-editbar2"); tap("Listo"); gone("Editar barra y rueda") }
+        step("Barra › arrastrar para reordenar") {
+            val x0 = rule.onNodeWithContentDescription("Bolígrafo").fetchSemanticsNode().boundsInRoot.left; val xl = rule.onNodeWithContentDescription("Lazo").fetchSemanticsNode().boundsInRoot.left
+            assertTrue("el editor de barra movió el Bolígrafo ($x0)", x0 > rule.onNodeWithContentDescription("Pluma estilográfica").fetchSemanticsNode().boundsInRoot.left)
+            rule.onNodeWithContentDescription("Lazo").performTouchInput { down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(-20f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-2000f, 0f)); up() }
+            rule.waitForIdle(); val now = rule.onNodeWithContentDescription("Lazo").fetchSemanticsNode().boundsInRoot.left
+            assertTrue("el Lazo no cambió de sitio ($xl → $now)", now < xl - 50f && now < rule.onNodeWithContentDescription("Pluma estilográfica").fetchSemanticsNode().boundsInRoot.left); shot("bar-moved") }
+        step("Dial › todos los lápices") {
+            fun find(v: android.view.View): com.arsnova.ink.InkView? = (v as? com.arsnova.ink.InkView) ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) } }
+            val ink = find(rule.activity.window.decorView)!!; desc("Pluma estilográfica"); rule.runOnUiThread { ink.onWheel(640f, 400f) }; rule.waitForIdle()
+            tap("Todos los lápices"); rule.mainClock.advanceTimeBy(600); shot("wheel-all"); rule.onAllNodesWithContentDescription("Crayón").onLast().performClick(); rule.mainClock.advanceTimeBy(900); rule.waitForIdle()
+            rule.onNodeWithContentDescription("Crayón").assertExists(); assertTrue("la pluma debía volverse crayón", rule.onAllNodesWithContentDescription("Pluma estilográfica").fetchSemanticsNodes().isEmpty())
+            rule.runOnUiThread { ink.onWheel(640f, 400f) }; rule.waitForIdle(); tap("Mi barra"); back() }
         step("⋯ › Ajustes del lápiz") { desc("Opciones de la barra"); tap("Ajustes del lápiz"); back() }
         step("⋯ › Líneas y cuadrículas") { desc("Opciones de la barra"); tap("Líneas y cuadrículas"); back() }
         for (t in listOf("Dibujar con el dedo", "Mejorar escritura a mano", "Minimizar automáticamente")) step("⋯ › $t") { desc("Opciones de la barra"); tap(t); tap(t); back() }
@@ -113,7 +134,7 @@ class MenusTest {
     @Test fun wheel() {
         var picked = -1
         rule.setContent { ArsTheme(2) { Box(Modifier.fillMaxSize().background(Ars.Bg)) {
-            ToolWheel(Offset(1280f, 760f), Slots.defaults, 0, listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, false, { picked = it }, {}, {}, {}, {}, {}, onDismiss = {}) } } }
+            ToolWheel(Offset(1280f, 760f), Slots.defaults, 0, listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, false, { picked = it }, {}, {}, {}, {}, {}, onAll = {}, onDismiss = {}) } } }
         rule.mainClock.advanceTimeBy(900); shot("wheel-pens")
         Slots.defaults.forEachIndexed { i, s -> step("Dial › ${s.name}") { desc(s.name); assertTrue("eligió $picked, no $i", picked == i) } }
         done("menus-wheel")

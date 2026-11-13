@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import com.arsnova.data.Tool
 import kotlinx.serialization.Serializable
@@ -43,7 +44,7 @@ import kotlinx.serialization.json.Json
 val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta", "Crayón", "Línea discontinua")
 
 @Serializable
-data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f, val free: Boolean = false) {
+data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f, val mode: Int = 0) {
     val name get() = when (tool) { Tool.ERASER -> "Borrador"; Tool.LASSO -> "Lazo"; Tool.TEXT -> "Texto"; Tool.TAPE -> "Cinta para ocultar"; Tool.LASER -> "Puntero láser"; else -> StyleNames[style] }
 }
 
@@ -164,7 +165,7 @@ fun AppleToolbar(
     slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSelect: (Int) -> Unit, onUndo: () -> Unit, onRedo: () -> Unit, onColor: (Int) -> Unit, onEditSwatch: (Int) -> Unit,
     onPicker: () -> Unit, insertMenu: @Composable (Boolean, () -> Unit) -> Unit, onMore: () -> Unit, onCollapse: () -> Unit = {},
-    dock: Int = 0, handle: Modifier = Modifier, grouped: Boolean = false, penIdx: Int = 0, art: Boolean = true,
+    dock: Int = 0, handle: Modifier = Modifier, grouped: Boolean = false, penIdx: Int = 0, art: Boolean = true, onMove: (Int, Int) -> Unit = { _, _ -> },
 ) {
     val cs = MaterialTheme.colorScheme; val dark = cs.background.luminance() < 0.3f
     var plus by remember { mutableStateOf(false) }
@@ -195,9 +196,18 @@ fun AppleToolbar(
         IconButton(onRedo, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") }
     }
     // Estilo Apple: en horizontal los lápices asoman de pie desde el borde y el elegido sube; agrupados, solo se ve el lápiz en uso
-    @Composable fun Tools(w: androidx.compose.ui.unit.Dp) = slots.indices.filter { slots[it].tool != Tool.PEN || !grouped || it == penIdx }.forEach { i ->
-        if (art && !vertical) Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { rotationZ = if (dock == 2) 180f else 0f }) { ToolArt(slots[i], i == active, label = false, w = w) { onSelect(i) } }
-        else ToolBtn(i) }
+    val order = remember { DragOrder() }; val hv = androidx.compose.ui.platform.LocalView.current
+    @Composable fun Tools(w: androidx.compose.ui.unit.Dp) {
+        val vis = slots.indices.filter { slots[it].tool != Tool.PEN || !grouped || it == penIdx }
+        order.step = with(androidx.compose.ui.platform.LocalDensity.current) { (if (art && !vertical) w + 4.dp else 48.dp).toPx() }
+        vis.forEachIndexed { pos, i ->
+            // mantener pulsado y arrastrar para cambiar el orden (como en la barra de Apple)
+            val m = Modifier.zIndex(if (order.from == pos) 1f else 0f).dragOrder(order, pos, vis.size, vertical, { hv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }) { f, t -> onMove(vis[f], vis[t]) }
+                .graphicsLayer { val d = order.shift(pos, vis.size); if (vertical) translationY = d else translationX = d; if (order.from == pos) { scaleX = 1.14f; scaleY = 1.14f } }
+            if (art && !vertical) Box(m.padding(horizontal = 2.dp).graphicsLayer { rotationZ = if (dock == 2) 180f else 0f }) { ToolArt(slots[i], i == active, label = false, w = w) { onSelect(i) } }
+            else Box(m) { ToolBtn(i) }
+        }
+    }
     @Composable fun Colors() {
         (if (vertical) swatches.take(2) else swatches).forEachIndexed { k, c -> Dot(c, k) }
         Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).semantics { contentDescription = "Más colores" }.clickable(onClick = onPicker))
@@ -283,42 +293,64 @@ fun StrokePreview(s: Slot, modifier: Modifier = Modifier, onPaper: Boolean = fal
 /** Panel de la herramienta: muestra del trazo, tipo de punta, grosor, estabilización y opacidad con ajuste fino, favoritos y colores. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onFav: (() -> Unit)? = null, onTapeAll: ((Boolean) -> Unit)? = null, onPicker: () -> Unit) {
+fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onFav: (() -> Unit)? = null, onAction: ((String) -> Unit)? = null, maxH: androidx.compose.ui.unit.Dp = 540.dp, onPicker: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ink = s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER
-    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 10.dp).width(372.dp)) {
-        Column(Modifier.heightIn(max = 540.dp).verticalScroll(rememberScrollState()).padding(18.dp, 14.dp)) {
+    Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Panel, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 10.dp).width(372.dp)) {
+        fun pref(k: String, v: Any) { prefs.edit().apply { if (v is Boolean) putBoolean(k, v) else if (v is Float) putFloat(k, v) else putInt(k, v as Int) }.apply(); onAction?.invoke("sync") }
+        Column(Modifier.heightIn(max = maxH).verticalScroll(rememberScrollState()).padding(18.dp, 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
                 if (ink && onFav != null) Row(Modifier.bounceClick { onFav() }.clip(CircleShape).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(ArsIcons.Star, null, Modifier.size(15.dp)); Spacer(Modifier.width(6.dp)); Text("Guardar favorito", style = MaterialTheme.typography.labelMedium) }
             }
-            if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18)).background(Color(0xFFFCFCFA)).border(1.dp, Ars.GlassBorder, squircle(18))) {
+            if (ink || s.tool == Tool.TAPE) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(72.dp).clip(squircle(18))
+                // tinta clara sobre papel oscuro: una muestra blanca sobre blanco no se veía
+                .background(if (s.tool != Tool.TAPE && Color(s.color).luminance() > 0.72f) Color(0xFF1F1F22) else Color(0xFFFCFCFA)).border(1.dp, Ars.GlassBorder, squircle(18))) {
                 StrokePreview(s, Modifier.fillMaxSize(), onPaper = true) }
             if (s.tool == Tool.PEN) Row(Modifier.padding(top = 8.dp).fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
                 Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
             }
+            @Composable fun Seg(opts: List<String>, sel: Int, on: (Int) -> Unit) = SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                opts.forEachIndexed { i, l -> SegmentedButton(sel == i, { on(i) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } } }
+            @Composable fun Chip(l: String, on: Boolean, click: () -> Unit) = Box(Modifier.clip(squircle(12)).background(if (on) Ars.Text else Ars.Text.copy(alpha = 0.07f)).clickable(onClick = click).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(l, style = MaterialTheme.typography.labelLarge, color = if (on) Ars.Bg else Ars.Text) }
+            @Composable fun Toggle(l: String, sub: String?, v: Boolean, on: (Boolean) -> Unit) = Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Column(Modifier.weight(1f)) { Text(l, color = cs.onSurface); if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = Ars.Muted) }
+                Switch(v, on) }
             if (s.tool == Tool.ERASER) {
-                val opts = listOf("Objeto", "Píxel")
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                    opts.forEachIndexed { i, l -> SegmentedButton(s.style == i, { onChange(s.copy(style = i)) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
-                }
+                Seg(listOf("Objeto", "Píxel"), s.style) { onChange(s.copy(style = it)) }
+                var only by remember { mutableIntStateOf(prefs.getInt("eraseOnly", 0)) }
+                Text("Qué borra", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 12.dp))
+                Seg(listOf("Todo", "Resaltador", "Cinta"), only) { only = it; pref("eraseOnly", it) }
             }
             if (s.tool == Tool.TAPE) {
-                // Recta (de extremo a extremo) o libre (sigue el trazo, para tapar una palabra o un dibujo)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                    listOf("Recta", "Libre").forEachIndexed { i, l -> SegmentedButton(s.free == (i == 1), { onChange(s.copy(free = i == 1)) }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(l, maxLines = 1) } }
-                }
+                // Recta (de extremo a extremo), libre (sigue el trazo) o rectángulo (de esquina a esquina, para tapar un bloque)
+                Seg(listOf("Recta", "Libre", "Rectángulo"), s.mode) { onChange(s.copy(mode = it)) }
                 Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    com.arsnova.ink.Ink.TapeNames.forEachIndexed { i, l -> val on = s.style == i
-                        Box(Modifier.clip(squircle(12)).background(if (on) Ars.Text else Ars.Text.copy(alpha = 0.07f)).clickable { onChange(s.copy(style = i)) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                            Text(l, style = MaterialTheme.typography.labelLarge, color = if (on) Ars.Bg else Ars.Text) } }
+                    com.arsnova.ink.Ink.TapeNames.forEachIndexed { i, l -> Chip(l, s.style == i) { onChange(s.copy(style = i)) } } }
+                if (s.mode == 0) { var axis by remember { mutableStateOf(prefs.getBoolean("tapeAxis", false)) }
+                    Toggle("Solo horizontal o vertical", null, axis) { axis = it; pref("tapeAxis", it) } }
+                if (onAction != null) {
+                    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { TextButton({ onAction("tapeShow") }) { Text("Mostrar todas") }; TextButton({ onAction("tapeHide") }) { Text("Ocultar todas") } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { TextButton({ onAction("tapeClear") }) { Text("Quitar las de esta página", color = Brand) }; TextButton({ onAction("tapeClearAll") }) { Text("De todas", color = Brand) } }
                 }
-                if (onTapeAll != null) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton({ onTapeAll(true) }) { Text("Mostrar todas") }
-                    TextButton({ onTapeAll(false) }) { Text("Ocultar todas") }
-                }
-                Text("Pasa la cinta sobre lo que quieras ocultar. Tócala con esta herramienta para destaparla o volver a taparla.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 6.dp))
+                Text("Pasa la cinta sobre lo que quieras ocultar. Tócala con esta herramienta para destaparla o volver a taparla.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 2.dp))
+            }
+            if (s.tool == Tool.HIGHLIGHTER) Toggle("Trazar en línea recta", "Como con regla: de donde apoyas a donde sueltas", s.mode == 1) { onChange(s.copy(mode = if (it) 1 else 0)) }
+            if (s.tool == Tool.LASER) {
+                Seg(listOf("Línea", "Punto"), s.style.coerceIn(0, 1)) { onChange(s.copy(style = it)) }
+                Stepper("Grosor", s.width, 3f..24f, 1f) { onChange(s.copy(width = it)) }
+                var secs by remember { mutableFloatStateOf(prefs.getFloat("laserSecs", 0.7f)) }
+                Stepper("Duración", secs, 0.3f..5f, 0.1f, " s") { secs = it; pref("laserSecs", it) }
+            }
+            if (s.tool == Tool.LASSO) {
+                var rect by remember { mutableStateOf(prefs.getBoolean("lassoRect", false)) }; var mask by remember { mutableIntStateOf(prefs.getInt("lassoMask", 15)) }
+                Seg(listOf("Libre", "Rectangular"), if (rect) 1 else 0) { rect = it == 1; pref("lassoRect", rect) }
+                Text("Qué se puede seleccionar", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Escritura" to 1, "Resaltador" to 2, "Cinta" to 4, "Imágenes y texto" to 8).forEach { (l, bit) -> Chip(l, mask and bit != 0) { mask = mask xor bit; pref("lassoMask", mask) } } }
+                Text("Rodea lo que quieras mover, copiar o cambiar de tamaño. Un toque selecciona el trazo que haya debajo.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 8.dp))
             }
             if (s.tool != Tool.LASSO && s.tool != Tool.LASER) {
                 var presets by remember(s.tool) { mutableStateOf(Widths.load(prefs, s.tool)) }
@@ -334,11 +366,10 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
                 Text("Mantén pulsado un tamaño para guardar el grosor actual", style = MaterialTheme.typography.labelSmall, color = Ars.Muted, modifier = Modifier.padding(top = 4.dp))
             }
             if (s.tool == Tool.ERASER) {
-                var hold by remember { mutableStateOf(prefs.getBoolean("holdErase", true)) }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
-                    Column(Modifier.weight(1f)) { Text("Mantener para borrar", color = cs.onSurface)
-                        Text("Con cualquier lápiz: apoya la punta sin moverla medio segundo y borra hasta que la levantes", style = MaterialTheme.typography.bodySmall, color = Ars.Muted) }
-                    Switch(hold, { hold = it; prefs.edit().putBoolean("holdErase", it).apply() }) }
+                var hold by remember { mutableStateOf(prefs.getBoolean("holdErase", true)) }; var backTo by remember { mutableStateOf(prefs.getBoolean("eraseBack", false)) }
+                Toggle("Volver al lápiz al terminar", "Tras cada borrado vuelve sola la herramienta anterior", backTo) { backTo = it; pref("eraseBack", it) }
+                Toggle("Mantener para borrar", "Con cualquier lápiz: apoya la punta sin moverla medio segundo y borra hasta que la levantes", hold) { hold = it; pref("holdErase", it) }
+                if (onAction != null) TextButton({ onAction("clearPage") }, Modifier.padding(top = 4.dp)) { Text("Limpiar la página", color = Brand) }
             }
             if (s.tool == Tool.TAPE || s.tool == Tool.LASER) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                 listOf(0xFF7FB3D5, 0xFFF5B7B1, 0xFFA9DFBF, 0xFFF9E79F, 0xFFD7BDE2, 0xFFFF3B30, 0xFF1D1B18).map { it.toInt() }.forEach { c -> val on = c == s.color

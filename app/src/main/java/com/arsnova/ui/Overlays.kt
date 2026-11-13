@@ -1,5 +1,10 @@
 package com.arsnova.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -43,7 +48,7 @@ fun ColorPopover(initial: Int, swatches: List<Int>, onPick: (Int) -> Unit, onSav
     var op by remember { mutableFloatStateOf(((initial ushr 24) / 255f).let { if (it == 0f) 1f else it }) }
     val cur = (rgb and 0x00FFFFFF) or ((op * 255).toInt() shl 24)
     fun set(c: Int) { rgb = c or 0xFF000000.toInt(); onPick((rgb and 0x00FFFFFF) or ((op * 255).toInt() shl 24)) }
-    Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.width(340.dp).padding(bottom = 10.dp)) {
+    Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Panel, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.width(340.dp).padding(bottom = 10.dp)) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Colores", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -139,7 +144,7 @@ fun LinesSheet(current: Template, onPick: (Template) -> Unit, onCancel: () -> Un
 fun PaletteMenu(autoMin: Boolean, finger: Boolean, beautify: Boolean, onAutoMin: (Boolean) -> Unit, onFinger: (Boolean) -> Unit, onBeautify: (Boolean) -> Unit,
                 onLines: () -> Unit, onPencil: () -> Unit, onEditBar: () -> Unit = {}, anchor: Alignment = Alignment.BottomCenter, pad: PaddingValues = PaddingValues(bottom = 96.dp), onDismiss: () -> Unit) {
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
-        Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
+        Surface(shape = squircle(28), shadowElevation = 16.dp, color = Ars.Panel, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.align(anchor).padding(pad).width(340.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.padding(vertical = 6.dp)) {
                 @Composable fun T(l: String, v: Boolean, on: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().clickable { on(!v) }.padding(18.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(l, Modifier.weight(1f)); Switch(v, on) }
@@ -197,7 +202,7 @@ fun FormulaDialog(initial: String, onDismiss: () -> Unit, onDone: (String) -> Un
 /** Editar la barra: qué herramientas y lápices hay, en qué orden, y cómo se ven. */
 @Composable
 fun BarEditor(slots: List<Slot>, grouped: Boolean, art: Boolean, onSlots: (List<Slot>) -> Unit, onGrouped: (Boolean) -> Unit, onArt: (Boolean) -> Unit, onClose: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().zIndex(20f).background(Color.Black.copy(alpha = 0.3f)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
         Surface(shape = squircle(30), shadowElevation = 20.dp, color = Ars.Sheet, modifier = Modifier.widthIn(max = 480.dp).padding(20.dp).pointerInput(Unit) { detectTapGestures { } }) {
             Column(Modifier.heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Editar barra y rueda", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f)); TextButton(onClose) { Text("Listo") } }
@@ -205,14 +210,17 @@ fun BarEditor(slots: List<Slot>, grouped: Boolean, art: Boolean, onSlots: (List<
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                     Column(Modifier.weight(1f)) { Text("Agrupar los lápices en un solo botón"); Text("La barra muestra solo el lápiz en uso; los demás siguen en la rueda", style = MaterialTheme.typography.bodySmall, color = Ars.Muted) }
                     Switch(grouped, onGrouped) }
-                Text("Herramientas (el mismo orden en la barra y en la rueda)", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+                Text("Herramientas · mantén pulsada una para moverla", style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+                val order = remember { DragOrder() }; val hv = androidx.compose.ui.platform.LocalView.current
                 slots.forEachIndexed { i, s ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(squircle(16)).background(Ars.CardHigh.copy(alpha = 0.6f)).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (s.tool == com.arsnova.data.Tool.PEN || s.tool == com.arsnova.data.Tool.HIGHLIGHTER) StrokePreview(s.copy(width = if (s.tool == com.arsnova.data.Tool.PEN) s.width.coerceIn(3f, 6f) else 12f), Modifier.size(44.dp, 30.dp))
-                        else Box(Modifier.size(44.dp, 30.dp), contentAlignment = Alignment.Center) { Icon(toolIcon(s.tool), null) }
+                    // mantener pulsada una fila y arrastrarla cambia el orden
+                    Row(Modifier.fillMaxWidth().zIndex(if (order.from == i) 1f else 0f).onSizeChanged { order.step = it.height.toFloat() }
+                        .dragOrder(order, i, slots.size, true, { hv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }) { f, t -> onSlots(slots.toMutableList().also { it.add(t, it.removeAt(f)) }) }
+                        .graphicsLayer { translationY = order.shift(i, slots.size); if (order.from == i) { scaleX = 1.03f; scaleY = 1.03f; shadowElevation = 14f } }
+                        .padding(vertical = 3.dp).clip(squircle(16)).background(Ars.CardHigh.copy(alpha = if (order.from == i) 1f else 0.6f)).padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(22.dp, 30.dp), contentAlignment = Alignment.Center) { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) { repeat(3) { Box(Modifier.size(14.dp, 2.dp).clip(CircleShape).background(Ars.Muted.copy(alpha = 0.7f))) } } }
+                        ToolGlyph(s, Modifier.padding(start = 4.dp).size(24.dp, 40.dp).clipToBounds())
                         Text(s.name + (if (s.width > 0f) " · ${wfmt(s.width)}" else ""), Modifier.weight(1f).padding(start = 10.dp), maxLines = 1)
-                        IconButton({ onSlots(slots.toMutableList().also { it.add(i - 1, it.removeAt(i)) }) }, enabled = i > 0) { Icon(ArsIcons.Up, "Subir") }
-                        IconButton({ onSlots(slots.toMutableList().also { it.add(i + 1, it.removeAt(i)) }) }, enabled = i < slots.size - 1) { Icon(ArsIcons.Down, "Bajar") }
                         IconButton({ onSlots(slots.toMutableList().also { it.removeAt(i) }) }, enabled = slots.size > 1) { Icon(ArsIcons.Trash, "Quitar", tint = Brand) }
                     }
                 }
@@ -224,6 +232,31 @@ fun BarEditor(slots: List<Slot>, grouped: Boolean, art: Boolean, onSlots: (List<
                 }
                 TextButton({ onSlots(Slots.defaults) }, Modifier.padding(top = 10.dp)) { Text("Restablecer la barra", color = Ars.Muted) }
             }
+        }
+    }
+}
+
+/** Tira de formas: elige una y arrástrala en la hoja con el lápiz actual; ✕ vuelve a la escritura normal. */
+@Composable
+fun ShapeStrip(sel: Int, onSel: (Int) -> Unit) {
+    Surface(shape = squircle(22), color = Ars.Panel, shadowElevation = 12.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 8.dp)) {
+        Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf("Línea", "Flecha", "Rectángulo", "Elipse", "Triángulo", "Rombo").forEachIndexed { k, name -> val i = k + 1; val on = sel == i; val fg = if (on) Ars.Bg else Ars.Text
+                Box(Modifier.size(42.dp).clip(squircle(13)).background(if (on) Ars.Text else Color.Transparent).semantics { contentDescription = name }.clickable { onSel(i) }, contentAlignment = Alignment.Center) {
+                    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) { val w = size.width; val h = size.height; val sw = 1.8.dp.toPx()
+                        val st = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+                        fun ln(x0: Float, y0: Float, x1: Float, y1: Float) = drawLine(fg, androidx.compose.ui.geometry.Offset(x0, y0), androidx.compose.ui.geometry.Offset(x1, y1), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+                        when (i) {
+                            1 -> ln(1f, h - 1f, w - 1f, 1f)
+                            2 -> { ln(1f, h - 1f, w - 1f, 1f); ln(w - 1f, 1f, w * 0.5f, 1f); ln(w - 1f, 1f, w - 1f, h * 0.5f) }
+                            3 -> drawRect(fg, androidx.compose.ui.geometry.Offset(1f, h * 0.18f), androidx.compose.ui.geometry.Size(w - 2f, h * 0.64f), style = st)
+                            4 -> drawOval(fg, androidx.compose.ui.geometry.Offset(1f, h * 0.15f), androidx.compose.ui.geometry.Size(w - 2f, h * 0.7f), style = st)
+                            5 -> drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 2f); lineTo(w - 1f, h - 2f); lineTo(1f, h - 2f); close() }, fg, style = st)
+                            else -> drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 1f); lineTo(w - 1f, h / 2); lineTo(w / 2, h - 1f); lineTo(1f, h / 2); close() }, fg, style = st)
+                        } } }
+            }
+            Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(Ars.Line))
+            IconButton({ onSel(0) }) { Icon(ArsIcons.Close, "Salir de formas") }
         }
     }
 }

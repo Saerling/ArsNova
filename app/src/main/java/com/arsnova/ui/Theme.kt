@@ -52,6 +52,8 @@ object Ars {
     val Sheet get() = if (dark) Color(0xFF161619) else Color(0xFFFFFFFF)
     /** Cristal de las barras flotantes sobre el lienzo. */
     val Glass get() = (if (dark) Color(0xFF171719) else Color.White).copy(alpha = Look.glass)
+    /** Paneles con texto (ajustes, menús): casi opacos, para que lo escrito detrás no se mezcle con las letras. */
+    val Panel get() = Glass.copy(alpha = 0.94f + 0.06f * Look.glass)
     val GlassBorder get() = if (dark) Color(0x14FFFFFF) else Color(0x14000000)
     val Text get() = if (dark) Color.White else Color(0xFF111114)
     val Muted get() = if (dark) Color(0xFF9A9AA0) else Color(0xFF6B6B73)

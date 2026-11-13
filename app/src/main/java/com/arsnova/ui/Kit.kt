@@ -1,5 +1,8 @@
 package com.arsnova.ui
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -131,3 +134,14 @@ fun RowScope.SegmentedButton(selected: Boolean, onClick: () -> Unit, shape: Shap
     Box(modifier.weight(1f).bounceClick(scale = 0.95f, onClick = onClick).clip(squircle(12)).background(bg).padding(horizontal = 8.dp, vertical = 9.dp), contentAlignment = Alignment.Center) {
         CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.labelLarge, LocalContentColor provides fg) { label() } }
 }
+
+/** Reordenar manteniendo pulsado: el elemento sigue al dedo, los demás le abren hueco y el cambio se aplica al soltar. */
+class DragOrder {
+    var from by androidx.compose.runtime.mutableIntStateOf(-1); var off by androidx.compose.runtime.mutableFloatStateOf(0f); var step = 1f
+    fun target(n: Int) = (from + Math.round(off / step)).coerceIn(0, n - 1)
+    /** Desplazamiento visual del elemento `j` mientras se arrastra otro. */
+    fun shift(j: Int, n: Int): Float { if (from < 0) return 0f; if (j == from) return off; val t = target(n); return if (j in (from + 1)..t) -step else if (j in t until from) step else 0f }
+}
+fun Modifier.dragOrder(st: DragOrder, pos: Int, n: Int, vertical: Boolean, onStart: () -> Unit = {}, onMove: (Int, Int) -> Unit): Modifier = pointerInput(pos, n) {
+    detectDragGesturesAfterLongPress(onDragStart = { st.from = pos; st.off = 0f; onStart() },
+        onDragEnd = { val f = st.from; val t = st.target(n); st.from = -1; if (f >= 0 && t != f) onMove(f, t) }, onDragCancel = { st.from = -1 }) { ch, d -> ch.consume(); st.off += if (vertical) d.y else d.x } }

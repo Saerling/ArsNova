@@ -78,7 +78,7 @@ object StylusKeys {
 fun ToolWheel(
     at: Offset, slots: List<Slot>, active: Int, swatches: List<Int>, canUndo: Boolean, canRedo: Boolean,
     onSlot: (Int) -> Unit, onColor: (Int) -> Unit, onPicker: () -> Unit, onWidth: (Float) -> Unit,
-    onUndo: () -> Unit, onRedo: () -> Unit, onEdit: () -> Unit = {}, onDismiss: () -> Unit,
+    onUndo: () -> Unit, onRedo: () -> Unit, onEdit: () -> Unit = {}, all: Boolean = false, onAll: ((Boolean) -> Unit)? = null, onDismiss: () -> Unit,
 ) {
     val d = LocalDensity.current; val view = LocalView.current; val scope = rememberCoroutineScope()
     val radius = 152.dp; val rp = with(d) { radius.toPx() }
@@ -208,6 +208,13 @@ fun ToolWheel(
                 Text(t, Modifier.padding(horizontal = 14.dp, vertical = 12.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) } }
             Pill { IconButton({ tick(); onRedo() }, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") } }
             Pill { IconButton({ tick(); onEdit(); close() }) { Icon(ArsIcons.Edit, "Editar la rueda") } }
+        }
+        // qué ofrece el anillo: las herramientas de tu barra o todos los tipos de lápiz
+        if (onAll != null) Row(Modifier.offset { IntOffset((cx - rp).roundToInt(), (if (below) cy + rp + 66.dp.toPx() else cy - rp - 106.dp.toPx()).roundToInt()) }.width(radius * 2)
+            .graphicsLayer { alpha = open.value.coerceIn(0f, 1f) }, horizontalArrangement = Arrangement.Center) {
+            Pill { listOf("Mi barra" to false, "Todos los lápices" to true).forEach { (l, v) -> val on = all == v
+                Box(Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(50)).background(if (on) Ars.Text else Color.Transparent).bounceClick(scale = 0.92f) { tick(); if (!on) onAll(v) }.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text(l, style = MaterialTheme.typography.labelLarge, color = if (on) Ars.Bg else Ars.Text, maxLines = 1) } } }
         }
     }
 }
