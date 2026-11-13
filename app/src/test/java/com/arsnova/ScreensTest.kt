@@ -60,8 +60,8 @@ class ScreensTest {
         com.arsnova.ui.ToolWheel(androidx.compose.ui.geometry.Offset(1280f, 760f), com.arsnova.ui.Slots.defaults, 0, listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, false, {}, {}, {}, {}, {}, {}) {} } } }; shot("wheel") }
     @Test fun panel() { val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("ars", 0)
         rule.setContent { ArsTheme(1) { androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(com.arsnova.ui.Ars.Bg).padding(24.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(24.dp)) {
-            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[0].copy(style = 1, color = 0xFF2D5BD9.toInt(), width = 6f), listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, {})
-            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[1], listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, {})
+            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[0].copy(style = 1, color = 0xFF2D5BD9.toInt(), width = 6f), listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, null, {})
+            com.arsnova.ui.ToolSettings(com.arsnova.ui.Slots.defaults[1], listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }, true, prefs, {}, {}, null, null, {})
             com.arsnova.ui.LatexView("\\Delta G = \\Delta H - T\\Delta S \\qquad \\int_{0}^{\\infty} e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}", androidx.compose.ui.Modifier.size(420.dp, 140.dp).background(com.arsnova.ui.Ars.Card))
         } } }; shot("panel") }
     @Test fun newNotebook() { val (r, _) = repo(); rule.setContent { ArsTheme(2) { LibraryScreen(r, {}) {} } }

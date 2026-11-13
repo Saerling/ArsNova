@@ -195,7 +195,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.penWidth = if (slot.tool == Tool.PEN) slot.width else view.penWidth
         view.hlWidth = if (slot.tool == Tool.HIGHLIGHTER) slot.width else view.hlWidth
         if (slot.tool == Tool.ERASER) { view.eraserRadius = slot.width; view.eraserPixel = slot.style == 1 }
-        if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style }
+        if (slot.tool == Tool.TAPE) { view.tapeWidth = slot.width; view.tapePattern = slot.style; view.tapeFree = slot.free }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
         view.tapGestures = prefs.getBoolean("tapGestures", true); view.holdErase = prefs.getBoolean("holdErase", true); view.zoomLock = zoomLock; view.onZoom = { zoom = it }; view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
     }
@@ -234,7 +234,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Bloquear zoom") }, { zoomLock = !zoomLock; prefs.edit().putBoolean("zoomLock", zoomLock).apply() }, trailingIcon = { Checkbox(zoomLock, null) })
                         } }
                     TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
-                    IconButton({ menu = true }) { Icon(ArsIcons.MoreV, "Más") }
+                    IconButton({ menu = true }) { Icon(ArsIcons.MoreV, "Menú de la nota") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++; menu = false },
                             leadingIcon = { Icon(ArsIcons.PageAdd, null) })
@@ -302,7 +302,8 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         nb.pages.add(p); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; aiOut = null }) { Text("Insertar como página") } },
                     dismissButton = { TextButton({ aiOut = null }) { Text("Cerrar") } })
             }
-            if (learning) Surface(Modifier.align(Alignment.TopCenter).padding(12.dp), shape = squircle(20), shadowElevation = 8.dp, color = MaterialTheme.colorScheme.primary) {
+            if (learning) Surface(Modifier.align(Alignment.TopCenter).padding(top = topPad + 8.dp), // bajo la barra superior: encima de ella no se podía pulsar «Cancelar»
+                 shape = squircle(20), shadowElevation = 8.dp, color = MaterialTheme.colorScheme.primary) {
                 Row(Modifier.padding(16.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Haz doble toque en tu lápiz ahora…", color = MaterialTheme.colorScheme.onPrimary)
                     TextButton({ learning = false }) { Text("Cancelar", color = MaterialTheme.colorScheme.onPrimary) }
@@ -310,10 +311,18 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
             if (editBar) BarEditor(slots, grouped, barArt, { l -> slots = l; Slots.save(prefs, l); active = active.coerceIn(0, l.size - 1); lastPen = l.indexOfFirst { it.tool == Tool.PEN }.coerceAtLeast(0) },
                 { grouped = it; prefs.edit().putBoolean("grouped", it).apply() }, { barArt = it; prefs.edit().putBoolean("barArt", it).apply() }) { editBar = false }
+            // Un solo panel a la vez: abrir uno cierra los demás (antes se apilaban, se tapaban entre sí y se salían por arriba)
+            LaunchedEffect(picker != null) { if (picker != null) { showSettings = false; lines = false; palMenu = false } }
+            LaunchedEffect(showSettings) { if (showSettings) { picker = null; lines = false; palMenu = false } }
+            LaunchedEffect(lines) { if (lines) { picker = null; showSettings = false; palMenu = false } }
+            LaunchedEffect(palMenu) { if (palMenu) { picker = null; showSettings = false; lines = false } }
+            // Atrás cierra primero lo que esté abierto, en vez de salir de la nota
+            androidx.activity.compose.BackHandler(picker != null || showSettings || lines || palMenu || editBar || wheelAt != null || learning) {
+                picker = null; showSettings = false; lines = false; palMenu = false; editBar = false; wheelAt = null; learning = false }
             if (palMenu) PaletteMenu(autoMin, !stylusOnly, beautify, { autoMin = it; prefs.edit().putBoolean("autoMin", it).apply() },
                 { stylusOnly = !it; prefs.edit().putBoolean("stylusOnly", !it).apply() }, { beautify = it; prefs.edit().putBoolean("beautify", it).apply() },
                 { palMenu = false; lines = true }, { palMenu = false; showSettings = true }, { palMenu = false; editBar = true },
-                dockAlign(dock), dockPad(dock, topPad)) { palMenu = false }
+                dockAlign(dock), dockPad(dock, topPad, barArt)) { palMenu = false }
             if (stickers) AlertDialog({ stickers = false }, confirmButton = { TextButton({ stickers = false }) { Text("Cerrar") } }, title = { Text("Stickers") }, text = {
                 Column { "⭐️🌟✨💡📌📎✏️📚📝✅❌❗️❓💯🔥❤️💙💚💛💜🌸🌿🍀☀️🌙⚡️🎯🎓🧪🧬⚗️🔬📐📏🧠💭🗓️⏰🎉👍👀🙌".let { str ->
                     val list = java.text.BreakIterator.getCharacterInstance().let { bi -> bi.setText(str); var st = bi.first(); val out = ArrayList<String>(); var en = bi.next(); while (en != java.text.BreakIterator.DONE) { out += str.substring(st, en); st = en; en = bi.next() }; out }
@@ -322,7 +331,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             })
             if (lines) LinesSheet(nb.pages[pageIdx].template, { t -> nb.pages.forEach { it.template = t }; view.refresh(); dirty++; lines = false }) { lines = false }
             val panelAlign = dockAlign(dock)
-            val panelPad = dockPad(dock, topPad)
+            val panelPad = dockPad(dock, topPad, barArt)
             Column(Modifier.align(panelAlign).navigationBarsPadding().padding(panelPad).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedVisibility(audio.open) { AudioBar(audio, nb.recs) }
                 AnimatedVisibility(picker != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
@@ -336,7 +345,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
-                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot,
+                    ToolSettings(slot, swatches, shapesOn, prefs, { shapesOn = it; prefs.edit().putBoolean("shapes", it).apply() }, ::updSlot, onTapeAll = { view.tapesAll(it) },
                         onFav = { slots = slots + slot.copy(); Slots.save(prefs, slots); android.widget.Toast.makeText(ctx, "Guardado como favorito: está en la barra y en la rueda", android.widget.Toast.LENGTH_SHORT).show() }) { picker = -1 }
                 }
                 AnimatedVisibility(hasSel, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 520f), 0.85f),
@@ -465,7 +474,9 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
 }
 
 private fun dockAlign(d: Int) = when (d) { 1 -> Alignment.CenterStart; -1 -> Alignment.CenterEnd; 2 -> Alignment.TopCenter; else -> Alignment.BottomCenter }
-private fun dockPad(d: Int, top: androidx.compose.ui.unit.Dp) = when (d) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp); 2 -> PaddingValues(top = top + 92.dp); else -> PaddingValues(bottom = 98.dp) }
+/** Hueco que dejan los paneles para no quedar debajo de la barra (la de lápices dibujados, de dos filas, es más alta). */
+private fun dockPad(d: Int, top: androidx.compose.ui.unit.Dp, two: Boolean = false) = when (d) { 1 -> PaddingValues(start = 96.dp); -1 -> PaddingValues(end = 96.dp)
+    2 -> PaddingValues(top = top + if (two) 142.dp else 92.dp); else -> PaddingValues(bottom = if (two) 148.dp else 98.dp) }
 
 private fun Template.label() = when (this) { Template.BLANK -> "en blanco"; Template.LINED -> "rayado"; Template.GRID -> "cuadrícula"; Template.DOTS -> "puntos"; else -> "líneas y cuadrícula" }
 

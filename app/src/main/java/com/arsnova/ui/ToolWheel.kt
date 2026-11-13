@@ -46,6 +46,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.arsnova.data.Tool
 import kotlinx.coroutines.Job
@@ -150,15 +153,16 @@ fun ToolWheel(
                                 LaunchedEffect(Unit) { delay(20L + i * 14L); p.animateTo(1f, spring(dampingRatio = 0.58f, stiffness = 480f)) }
                                 val on = i == active
                                 val pop by animateFloatAsState(if (on) 1.12f else 1f, spring(dampingRatio = 0.45f, stiffness = 500f), label = "pop")
+                                // cada herramienta es su lápiz dibujado, en abanico con la punta hacia fuera (como la paleta del Apple Pencil)
+                                val gw = size * 0.74f
                                 Box(Modifier.offset { val a = Math.toRadians((-90f + i * step + rot).toDouble()); val k = 0.55f + 0.45f * p.value
-                                        IntOffset((cos(a) * 116.dp.toPx() * k).roundToInt(), (sin(a) * 116.dp.toPx() * k).roundToInt()) }
-                                    .graphicsLayer { alpha = p.value.coerceIn(0f, 1f); val k = (0.6f + 0.4f * p.value) * pop; scaleX = k; scaleY = k }
-                                    .size(size).bounceClick(scale = 0.8f) { tick(); top = i; onSlot(i); settle(i); scope.launch { delay(240); close() } }
-                                    .clip(CircleShape).background(if (on) Ars.Text.copy(alpha = 0.14f) else Color.Transparent).border(if (on) 2.dp else 0.dp, if (on) Ars.Text else Color.Transparent, CircleShape),
+                                        IntOffset((cos(a) * 119.dp.toPx() * k).roundToInt(), (sin(a) * 119.dp.toPx() * k).roundToInt()) }
+                                    .graphicsLayer { alpha = p.value.coerceIn(0f, 1f); val k = (0.6f + 0.4f * p.value) * pop; scaleX = k; scaleY = k; rotationZ = i * step + rot }
+                                    .size(gw + 10.dp, gw * 1.55f + 8.dp).bounceClick(scale = 0.86f) { tick(); top = i; onSlot(i); settle(i); scope.launch { delay(240); close() } }
+                                    .clip(RoundedCornerShape(50)).background(if (on) Ars.Text.copy(alpha = 0.13f) else Color.Transparent)
+                                    .semantics { contentDescription = s.name },
                                     contentAlignment = Alignment.Center) {
-                                    if (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER) Box(Modifier.size(size * 0.84f).clip(CircleShape).background(Color(0xFFFAFAFA)), contentAlignment = Alignment.Center) {
-                                        StrokePreview(s.copy(width = if (s.tool == Tool.PEN) s.width.coerceIn(3f, 6f) else 11f), Modifier.size(size * 0.72f, size * 0.5f), onPaper = true) }
-                                    else Icon(toolIcon(s.tool), s.name, tint = Ars.Text)
+                                    ToolGlyph(s, Modifier.size(gw, gw * 1.55f), fade = true)
                                 }
                             }
                         }

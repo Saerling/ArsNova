@@ -38,6 +38,8 @@ class InkView(context: Context) : View(context) {
     var eraserPixel = false
     var tapeWidth = 40f
     var tapePattern = 0
+    /** Cinta libre: sigue el trazo en vez de ir recta entre los dos extremos. */
+    var tapeFree = false
     private val laser = ArrayList<FloatArray>()   // x, y, instante (ms desde laserT0), 1 = empieza trazo
     private var laserT0 = 0L
     private fun laserNow(): Float { val t = android.os.SystemClock.uptimeMillis(); if (laser.isEmpty()) laserT0 = t; return (t - laserT0).toFloat() }
@@ -551,7 +553,7 @@ class InkView(context: Context) : View(context) {
                 downSX = sx; downSY = sy; removeCallbacks(holdToErase); if (isStylus && holdErase && !eraserBtn) postDelayed(holdToErase, 480)
             }
             Tool.ERASER -> { mode = Mode.ERASE; erased.clear(); pieces.clear(); ex = sx; ey = sy; eraseAt(x, y); onInking(true) }
-            Tool.TAPE -> { val hitT = hitStroke(x, y)?.takeIf { it.style == 11 }
+            Tool.TAPE -> { val hitT = tapeAt(x, y)
                 if (hitT != null) { hitT.hid = !hitT.hid; repaint(page!!, hitT.bounds); mode = Mode.NONE; onChange() }
                 else { clearSelection(); mode = Mode.DRAW; curHl = false; curStyle = 11; curN = 0; snapped = true; shapeLocked = false; sx0 = x; sy0 = y; add(x, y, 0.5f); add(x, y, 0.5f) } }
             Tool.LASER -> { mode = Mode.LASER; val t = laserNow(); laser.add(floatArrayOf(sx, sy, t, 1f)) }
@@ -595,7 +597,7 @@ class InkView(context: Context) : View(context) {
         when (mode) {
             Mode.DRAW -> {
                 if (hypot(sx - downSX, sy - downSY) > dp(5f)) removeCallbacks(holdToErase)
-                if (curStyle == 11) { curN = 3; add(x, y, 0.5f); return }
+                if (curStyle == 11 && !tapeFree) { curN = 3; add(x, y, 0.5f); return }
                 if (snapped) { if (!shapeLocked) line(x, y); return }
                 if (hypot(sx - sigX, sy - sigY) > 6f) { sigX = sx; sigY = sy; postSnap() }
                 rawX = x; rawY = y; rawP = pressure(pr)
@@ -655,12 +657,7 @@ class InkView(context: Context) : View(context) {
                     if (k - st >= 2) { val np = Stroke(System.nanoTime() + k, s.color, s.width, s.hl, a.copyOfRange(st * 3, k * 3), s.t, s.style); p.strokes.add(np); pieces += np } }
                 hit = true; dirty.union(b); continue
             }
-            var j = 0
-            while (j < a.size) {
-                val dx = a[j] - x; val dy = a[j + 1] - y
-                if (dx * dx + dy * dy <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; dirty.union(b); break }
-                j += 3
-            }
+            if (dist2(s, x, y) <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; dirty.union(b) }
         }
         if (hit) repaint(p, dirty)
         invalidate()
@@ -670,10 +667,10 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(holdToErase); removeCallbacks(snap); predN = 0; onInking(false)
         val p = page ?: return
         when (mode) {
-            Mode.DRAW -> if (curN >= 3) {
+            Mode.DRAW -> if (curN >= 3 && !(curStyle == 11 && (curN <= 3 || (!tapeFree && hypot(cur[curN - 3] - cur[0], cur[curN - 2] - cur[1]) * scale < dp(6f))))) {
                 // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
                 if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
-                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
+                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) tapeWidth else penWidth, curHl, if (curStyle == 11 && !tapeFree) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
                 p.strokes.add(s); push(Op.Add(s))
                 Ink.darkPaper = Ink.isDark(p.paper)
                 pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
@@ -734,11 +731,29 @@ class InkView(context: Context) : View(context) {
         val r = 24f / scale
         for (s in page!!.strokes.asReversed()) {
             val b = s.bounds; if (x < b.left - r || x > b.right + r || y < b.top - r || y > b.bottom + r) continue
-            val lim = (r + s.width / 2).let { it * it }; var j = 0
-            while (j < s.pts.size) { val dx = s.pts[j] - x; val dy = s.pts[j + 1] - y; if (dx * dx + dy * dy <= lim) return s; j += 3 }
+            if (dist2(s, x, y) <= (r + s.width / 2).let { it * it }) return s
         }
         return null
     }
+    /** Distancia² de un punto a la línea del trazo (por tramos: una cinta recta solo guarda sus dos extremos). */
+    private fun dist2(s: Stroke, x: Float, y: Float): Float {
+        val a = s.pts; var best = Float.MAX_VALUE; var j = 0
+        if (a.size in 3..5) { val dx = a[0] - x; val dy = a[1] - y; return dx * dx + dy * dy }
+        while (j + 5 < a.size) {
+            val ax = a[j]; val ay = a[j + 1]; val vx = a[j + 3] - ax; val vy = a[j + 4] - ay; val l = vx * vx + vy * vy
+            val t = if (l <= 0f) 0f else (((x - ax) * vx + (y - ay) * vy) / l).coerceIn(0f, 1f)
+            val dx = ax + t * vx - x; val dy = ay + t * vy - y; val d = dx * dx + dy * dy; if (d < best) best = d; j += 3
+        }
+        return best
+    }
+    /** La cinta que hay bajo el punto: basta tocar en cualquier parte de su ancho. */
+    private fun tapeAt(x: Float, y: Float): Stroke? { val slop = 6f / scale
+        return page?.strokes?.lastOrNull { it.style == 11 && dist2(it, x, y) <= (it.width / 2 + slop).let { r -> r * r } } }
+    /** Muestra u oculta de golpe todas las cintas de la página (repasar / autoevaluarse). */
+    fun tapesAll(reveal: Boolean) { val p = page ?: return; var any = false
+        for (s in p.strokes) if (s.style == 11 && s.hid != reveal) { s.hid = reveal; any = true }
+        if (any) { refresh(); onChange() } }
+    fun tapeCount() = page?.strokes?.count { it.style == 11 } ?: 0
 
     private fun cancelDraw() {
         removeCallbacks(holdToErase); removeCallbacks(snap); onInking(false)

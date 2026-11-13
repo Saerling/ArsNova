@@ -29,6 +29,10 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke as DStroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.dp
 import com.arsnova.data.Tool
 import kotlinx.serialization.Serializable
@@ -39,7 +43,7 @@ import kotlinx.serialization.json.Json
 val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta", "Crayón", "Línea discontinua")
 
 @Serializable
-data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f) {
+data class Slot(val tool: Tool, val style: Int, val color: Int, val width: Float, val stab: Float = 0.2f, val free: Boolean = false) {
     val name get() = when (tool) { Tool.ERASER -> "Borrador"; Tool.LASSO -> "Lazo"; Tool.TEXT -> "Texto"; Tool.TAPE -> "Cinta para ocultar"; Tool.LASER -> "Puntero láser"; else -> StyleNames[style] }
 }
 
@@ -72,29 +76,31 @@ val BigPalette: List<Int> = buildList {
 /** Iconos de lápices diseñados como vectores (viewBox 40×80, punta arriba). */
 private object PenArt {
     private val raw = mapOf(
-        "calligraphy" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "dark", "M15 26 L16 10 L24 7 L25 26 Z" to "metal", "M16 10 L24 7 L24 9.2 L16 12.2 Z" to "ink"),
-        "neon" to listOf("M11 36 L14 21 L26 21 L29 36 Z" to "dark", "M15.5 21 Q20 1 24.5 21 Z" to "ink", "M18.6 20 Q20 8 21.4 20 Z" to "white"),
+        "calligraphy" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "grip", "M15 26 L16 10 L24 7 L25 26 Z" to "metal", "M16 10 L24 7 L24 9.2 L16 12.2 Z" to "ink"),
+        "neon" to listOf("M11 36 L14 21 L26 21 L29 36 Z" to "grip", "M15.5 21 Q20 1 24.5 21 Z" to "ink", "M18.6 20 Q20 8 21.4 20 Z" to "white"),
         "watercolor" to listOf("M13 25 L27 25 L28.5 36 L11.5 36 Z" to "wood", "M14.5 25.5 C14 16 18 9 20 3.5 C22 9 26 16 25.5 25.5 Z" to "inka"),
-        "dots" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18.6 6 A1.4 1.4 0 1 0 21.4 6 A1.4 1.4 0 1 0 18.6 6 Z" to "ink", "M15.4 9.6 A1 1 0 1 0 17.4 9.6 A1 1 0 1 0 15.4 9.6 Z" to "ink", "M22.6 9.6 A1 1 0 1 0 24.6 9.6 A1 1 0 1 0 22.6 9.6 Z" to "ink"),
-        "tape" to listOf("M11 36 L11 18 Q11 12 20 12 Q29 12 29 18 L29 36 Z" to "ink", "M14 20 L26 20 L26 23 L14 23 Z" to "white"),
-        "laser" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "dark", "M17.5 10 A2.5 2.5 0 1 0 22.5 10 A2.5 2.5 0 1 0 17.5 10 Z" to "ink"),
-        "monoline" to listOf("M11 36 C11 30 17 14 18.6 9 L21.4 9 C23 14 29 30 29 36 Z" to "white", "M18.6 9 L21.4 9 L20.9 4.2 Q20 3.2 19.1 4.2 Z" to "ink"),
-        "ballpoint" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "metal", "M19.3 5.2 L20.7 5.2 L20.3 3.6 L19.7 3.6 Z" to "ink"),
-        "fountain" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "dark", "M15 26 C15 18 18.6 9.5 20 3.8 C21.4 9.5 25 18 25 26 Z" to "metal", "M19.6 6 L20.4 6 L20.4 18 L19.6 18 Z" to "dark", "M18.8 19.6 A1.2 1.2 0 1 0 21.2 19.6 A1.2 1.2 0 1 0 18.8 19.6 Z" to "dark", "M19.4 3.4 L20.6 3.4 L20.3 5.2 L19.7 5.2 Z" to "ink"),
+        "dots" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "grip", "M18.6 6 A1.4 1.4 0 1 0 21.4 6 A1.4 1.4 0 1 0 18.6 6 Z" to "ink", "M15.4 9.6 A1 1 0 1 0 17.4 9.6 A1 1 0 1 0 15.4 9.6 Z" to "ink", "M22.6 9.6 A1 1 0 1 0 24.6 9.6 A1 1 0 1 0 22.6 9.6 Z" to "ink"),
+        "tape" to listOf("M10 36 L10 15 Q10 10 15 10 L25 10 Q30 10 30 15 L30 36 Z" to "ink", "M10 24 L30 15 L30 19.5 L10 28.5 Z" to "wa", "M10 33 L30 24 L30 28.5 L10 36 Z" to "wa"),
+        "laser" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "grip", "M14.5 9 A5.5 5.5 0 1 0 25.5 9 A5.5 5.5 0 1 0 14.5 9 Z" to "inkg", "M17.4 9 A2.6 2.6 0 1 0 22.6 9 A2.6 2.6 0 1 0 17.4 9 Z" to "ink"),
+        "monoline" to listOf("M11 36 C11 30 17 14 18.6 9 L21.4 9 C23 14 29 30 29 36 Z" to "grip", "M18.6 9 L21.4 9 L20.9 4.2 Q20 3.2 19.1 4.2 Z" to "ink"),
+        "ballpoint" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "grip", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "metal", "M19.3 5.2 L20.7 5.2 L20.3 3.6 L19.7 3.6 Z" to "ink"),
+        "fountain" to listOf("M11 36 C12 31 14 28 15 26 L25 26 C26 28 28 31 29 36 Z" to "grip", "M15 26 C15 18 18.6 9.5 20 3.8 C21.4 9.5 25 18 25 26 Z" to "metal", "M19.6 6 L20.4 6 L20.4 18 L19.6 18 Z" to "dark", "M18.8 19.6 A1.2 1.2 0 1 0 21.2 19.6 A1.2 1.2 0 1 0 18.8 19.6 Z" to "dark", "M19.4 3.4 L20.6 3.4 L20.3 5.2 L19.7 5.2 Z" to "ink"),
         "pencil" to listOf("M11 36 L18.2 12.5 L21.8 12.5 L29 36 Q26.6 34.4 24.5 36 Q22.2 34.4 20 36 Q17.8 34.4 15.5 36 Q13.4 34.4 11 36 Z" to "wood", "M18.2 12.5 L20 5 L21.8 12.5 Z" to "ink"),
         "brush" to listOf("M13 25 L27 25 L28.5 36 L11.5 36 Z" to "metal", "M14 25.5 C13 18 18 8.5 20 3 C22 8.5 27 18 26 25.5 Z" to "ink"),
-        "marker" to listOf("M11 36 L14 22 L26 22 L29 36 Z" to "white", "M15 22 L15.8 12.5 L24.2 9 L25 22 Z" to "ink"),
-        "highlighter" to listOf("M11 36 L13 24 L27 24 L29 36 Z" to "white", "M13.6 24 L13.6 15.5 L26.4 10 L26.4 24 Z" to "inka"),
+        "marker" to listOf("M11 36 L14 22 L26 22 L29 36 Z" to "grip", "M15 22 L15.8 12.5 L24.2 9 L25 22 Z" to "ink"),
+        "highlighter" to listOf("M11 36 L13 24 L27 24 L29 36 Z" to "grip", "M13.6 24 L13.6 15.5 L26.4 10 L26.4 24 Z" to "inka"),
         "eraser" to listOf("M11 30 L11 17 Q11 8.5 20 8.5 Q29 8.5 29 17 L29 30 Z" to "pink", "M11 30 L29 30 L29 33 L11 33 Z" to "metal"),
-        "crayon" to listOf("M11 36 L12.5 21 L27.5 21 L29 36 Z" to "white", "M13.5 21 L15.5 9.5 Q20 5.5 24.5 9.5 L26.5 21 Z" to "ink", "M11 30 L29 30 L29 33 L11 33 Z" to "inka"),
-        "dash" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "ink", "M13.2 28 L26.8 28 L27.6 30.4 L12.4 30.4 Z" to "ink", "M15.2 22 L24.8 22 L25.6 24.4 L14.4 24.4 Z" to "ink"),
-        "lasso" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "white", "M18 12 L22 12 L20 5 Z" to "gray")
+        "crayon" to listOf("M11 36 L13.5 21 L26.5 21 L29 36 Z" to "ink", "M13.5 21 L15.5 9.5 Q20 5.5 24.5 9.5 L26.5 21 Z" to "ink", "M13.5 21 L26.5 21 L27 24 L13 24 Z" to "shade"),
+        "dash" to listOf("M11 36 C11 30 16.5 16 18 12 L22 12 C23.5 16 29 30 29 36 Z" to "grip", "M18 12 L22 12 L20.7 5.2 L19.3 5.2 Z" to "ink", "M13.2 28 L26.8 28 L27.6 30.4 L12.4 30.4 Z" to "ink", "M15.2 22 L24.8 22 L25.6 24.4 L14.4 24.4 Z" to "ink"),
+        "lasso" to listOf("M11 36 L11 31 Q11 25 20 25 Q29 25 29 31 L29 36 Z" to "grip")
     )
     val parts: Map<String, List<Pair<Path, String>>> by lazy { raw.mapValues { (_, l) -> l.map { androidx.compose.ui.graphics.vector.PathParser().parsePathString(it.first).toPath() to it.second } } }
     val barrel by lazy { Path().apply { addRect(androidx.compose.ui.geometry.Rect(11f, 36f, 29f, 84f)) } }
     private fun g(vararg c: Long, x0: Float = 11f, x1: Float = 29f) = Brush.horizontalGradient(c.map { Color(it) }, x0, x1)
-    val barrelB = g(0xFFDCD7CE, 0xFFFFFFFF, 0xFFF3F0EA, 0xFFCFC9BF)
-    val mats = mapOf("white" to g(0xFFE2DED6, 0xFFFFFFFF, 0xFFD9D4CB), "metal" to g(0xFF8E8E93, 0xFFF2F2F7, 0xFF7C7C82, x0 = 13f, x1 = 27f),
+    /** Brillo del cuerpo: reflejo a la izquierda y sombra al borde derecho (acabado lacado). */
+    val gloss = Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.22f), 0.2f to Color.White.copy(alpha = 0.36f), 0.36f to Color.White.copy(alpha = 0.04f), 0.72f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.4f), startX = 11f, endX = 29f)
+    val inkBarrel = setOf("highlighter", "crayon", "pencil")
+    val mats = mapOf("white" to g(0xFFE2DED6, 0xFFFFFFFF, 0xFFD9D4CB), "grip" to g(0xFF1B1B1E, 0xFF5B5B63, 0xFF2C2C30, 0xFF121214), "metal" to g(0xFF8E8E93, 0xFFF2F2F7, 0xFF7C7C82, x0 = 13f, x1 = 27f),
         "wood" to g(0xFFD2A878, 0xFFF2D9B8, 0xFFC69A6B), "pink" to g(0xFFE8938F, 0xFFF9C2BE, 0xFFDE837F))
     fun key(s: Slot) = when (s.tool) { Tool.ERASER -> "eraser"; Tool.LASSO -> "lasso"; Tool.HIGHLIGHTER -> "highlighter"
         Tool.TAPE -> "tape"; Tool.LASER -> "laser"
@@ -104,31 +110,50 @@ private object PenArt {
 private fun DrawScope.toolArt(s: Slot, dark: Boolean) {
     val k = size.width / 40f
     val ink = Color(s.color).copy(alpha = 1f)
-    val line = if (dark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.22f)
+    val line = if (dark) Color.White.copy(alpha = 0.36f) else Color.Black.copy(alpha = 0.3f)
     val st = DStroke(0.6f, join = StrokeJoin.Round)
-    val name = PenArt.key(s)
+    val name = PenArt.key(s); val inkB = name in PenArt.inkBarrel
     withTransform({ scale(k, k, Offset.Zero) }) {
-        drawPath(PenArt.barrel, PenArt.barrelB); drawPath(PenArt.barrel, line, style = st)
-        if (name != "eraser" && name != "lasso") drawRect(ink, Offset(11f, 44f), Size(18f, 3.4f))
+        // cuerpo oscuro lacado con anilla del color; resaltador, crayón y lápiz llevan el cuerpo de su color
+        drawPath(PenArt.barrel, if (inkB) ink else Color(0xFF2B2B2F))
+        if (inkB) drawRect(Color.Black.copy(alpha = 0.28f), Offset(11f, 42f), Size(18f, 7f))
+        else if (name != "eraser" && name != "lasso") { drawRect(ink, Offset(11f, 42.5f), Size(18f, 4f)); drawRect(Color.White.copy(alpha = 0.3f), Offset(11f, 42.5f), Size(18f, 0.5f)) }
+        drawPath(PenArt.barrel, PenArt.gloss); drawPath(PenArt.barrel, line, style = st)
         for ((p, m) in PenArt.parts[name].orEmpty()) {
             when (m) {
-                "ink" -> drawPath(p, ink); "inka" -> drawPath(p, ink.copy(alpha = 0.85f))
+                "ink" -> drawPath(p, ink); "inka" -> drawPath(p, ink.copy(alpha = 0.85f)); "inkg" -> { drawPath(p, ink.copy(alpha = 0.35f)); continue }
+                "wa" -> { drawPath(p, Color.White.copy(alpha = 0.5f)); continue }; "shade" -> { drawPath(p, Color.Black.copy(alpha = 0.25f)); continue }
                 "dark" -> drawPath(p, Color(0xFF2C2C2E)); "gray" -> drawPath(p, Color(0xFFA1A1A6))
                 else -> drawPath(p, PenArt.mats.getValue(m))
             }
             drawPath(p, line, style = st)
         }
+        if (name == "lasso") { // el lazo se reconoce por su aro punteado, no por una punta
+            val ring = if (dark) Color.White else Color(0xFF2C2C2E)
+            drawOval(ring, Offset(7.5f, 4f), Size(25f, 17f), style = DStroke(2.3f, cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.2f, 3.6f))))
+            drawLine(ring, Offset(20f, 21.6f), Offset(20f, 25.4f), 2.3f, StrokeCap.Round)
+        }
+    }
+}
+
+/** Dibujo del lápiz (punta arriba). `fade` lo funde por abajo, para el dial. */
+@Composable
+fun ToolGlyph(s: Slot, modifier: Modifier = Modifier, fade: Boolean = false) {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.3f
+    Canvas(if (fade) modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen } else modifier) {
+        clipRect { toolArt(s, dark) }
+        if (fade) drawRect(Brush.verticalGradient(0.62f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
     }
 }
 
 @Composable
-fun ToolArt(s: Slot, sel: Boolean, label: Boolean = true, onClick: () -> Unit) {
-    val lift by animateDpAsState(if (sel) 0.dp else 14.dp, spring(dampingRatio = 0.55f, stiffness = 380f), label = "lift")
+fun ToolArt(s: Slot, sel: Boolean, label: Boolean = true, w: androidx.compose.ui.unit.Dp = 40.dp, onClick: () -> Unit) {
+    val lift by animateDpAsState(if (sel) 0.dp else w * 0.36f, spring(dampingRatio = 0.55f, stiffness = 380f), label = "lift")
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.3f
-    Box(Modifier.width(40.dp).height(64.dp).clipToBounds().clickable(onClick = onClick)) {
+    Box(Modifier.width(w).height(w * 1.6f).clipToBounds().semantics { contentDescription = s.name; selected = sel }.clickable(onClick = onClick)) {
         Canvas(Modifier.fillMaxSize().offset(y = lift)) { toolArt(s, dark) }
         if (label && sel && (s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER))
-            Text(s.width.toInt().toString(), Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFF3A3A3C))
+            Text(s.width.toInt().toString(), Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color.White)
     }
 }
 
@@ -165,28 +190,40 @@ fun AppleToolbar(
             .combinedClickable(onClick = { onColor(c) }, onLongClick = { onEditSwatch(k) }), contentAlignment = Alignment.Center) {
             if (on) Icon(ArsIcons.Check, null, Modifier.size(14.dp), tint = if (Color(c).luminance() > 0.6f) Color.Black else Color.White) }
     }
-    @Composable fun Items() {
+    @Composable fun Hist() {
         IconButton(onUndo, enabled = canUndo) { Icon(ArsIcons.Undo, "Deshacer") }
         IconButton(onRedo, enabled = canRedo) { Icon(ArsIcons.Redo, "Rehacer") }
-        Sep()
-        // Estilo Apple: en horizontal los lápices asoman de pie desde el borde y el elegido sube; agrupados, solo se ve el lápiz en uso
-        slots.indices.filter { slots[it].tool != Tool.PEN || !grouped || it == penIdx }.forEach { i ->
-            if (art && !vertical) Box(Modifier.padding(horizontal = 1.dp).graphicsLayer { rotationZ = if (dock == 2) 180f else 0f }) { ToolArt(slots[i], i == active, label = false) { onSelect(i) } }
-            else ToolBtn(i) }
-        Sep()
+    }
+    // Estilo Apple: en horizontal los lápices asoman de pie desde el borde y el elegido sube; agrupados, solo se ve el lápiz en uso
+    @Composable fun Tools(w: androidx.compose.ui.unit.Dp) = slots.indices.filter { slots[it].tool != Tool.PEN || !grouped || it == penIdx }.forEach { i ->
+        if (art && !vertical) Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { rotationZ = if (dock == 2) 180f else 0f }) { ToolArt(slots[i], i == active, label = false, w = w) { onSelect(i) } }
+        else ToolBtn(i) }
+    @Composable fun Colors() {
         (if (vertical) swatches.take(2) else swatches).forEachIndexed { k, c -> Dot(c, k) }
-        Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).clickable { onPicker() })
-        Sep()
+        Box(Modifier.padding(4.dp).size(26.dp).clip(CircleShape).background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red))).semantics { contentDescription = "Más colores" }.clickable(onClick = onPicker))
+    }
+    @Composable fun Actions() {
         Box { IconButton({ plus = true }) { Icon(ArsIcons.Add, "Insertar") }; insertMenu(plus) { plus = false } }
-        IconButton(onMore) { Icon(ArsIcons.More, "Más") }
+        IconButton(onMore) { Icon(ArsIcons.More, "Opciones de la barra") }
         IconButton(onCollapse) { Icon(ArsIcons.Down, "Minimizar", tint = cs.outline,
             modifier = Modifier.graphicsLayer { rotationZ = when (dock) { 1 -> 90f; -1 -> -90f; 2 -> 180f; else -> 0f } }) }
     }
-    val grip = @Composable { Box(handle.size(if (vertical) 52.dp else 36.dp, if (vertical) 34.dp else 52.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(if (vertical) 24.dp else 4.dp, if (vertical) 4.dp else 24.dp).clip(CircleShape).background(cs.outline.copy(alpha = 0.55f))) } }
+    @Composable fun Items() { Hist(); Sep(); Tools(40.dp); Sep(); Colors(); Sep(); Actions() }
+    val two = art && !vertical
+    val grip = @Composable { Box(handle.size(if (vertical) 52.dp else 36.dp, if (vertical) 34.dp else if (two) 104.dp else 52.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(if (vertical) 24.dp else 4.dp, if (vertical) 4.dp else if (two) 34.dp else 24.dp).clip(CircleShape).background(cs.outline.copy(alpha = 0.55f))) } }
     Surface(shape = shape, color = Ars.Glass, shadowElevation = 10.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder)) {
         if (vertical) Column(Modifier.padding(vertical = 6.dp).widthIn(max = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             grip(); Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { Items() } }
+        else if (two) Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // barra gruesa de dos filas: arriba deshacer, colores y acciones; abajo los lápices asomando del borde
+            grip()
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val top = @Composable { Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { Hist(); Sep(); Colors(); Sep(); Actions() } }
+                val pens = @Composable { Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp)) { Tools(46.dp) } }
+                if (dock == 2) { pens(); top() } else { top(); pens() }
+            }
+        }
         else Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             grip(); Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) { Items() } }
     }
@@ -246,11 +283,11 @@ fun StrokePreview(s: Slot, modifier: Modifier = Modifier, onPaper: Boolean = fal
 /** Panel de la herramienta: muestra del trazo, tipo de punta, grosor, estabilización y opacidad con ajuste fino, favoritos y colores. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onFav: (() -> Unit)? = null, onPicker: () -> Unit) {
+fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedPreferences, onShapes: (Boolean) -> Unit, onChange: (Slot) -> Unit, onFav: (() -> Unit)? = null, onTapeAll: ((Boolean) -> Unit)? = null, onPicker: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ink = s.tool == Tool.PEN || s.tool == Tool.HIGHLIGHTER
     Surface(shape = squircle(30), shadowElevation = 16.dp, color = Ars.Glass, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 10.dp).width(372.dp)) {
-        Column(Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()).padding(18.dp, 14.dp)) {
+        Column(Modifier.heightIn(max = 540.dp).verticalScroll(rememberScrollState()).padding(18.dp, 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(s.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
                 if (ink && onFav != null) Row(Modifier.bounceClick { onFav() }.clip(CircleShape).background(Ars.PillFill).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -261,12 +298,27 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
             if (s.tool == Tool.PEN) Row(Modifier.padding(top = 8.dp).fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
                 Slots.penOrder.forEach { st -> ToolArt(s.copy(style = st), st == s.style, label = false) { onChange(s.copy(style = st)) } }
             }
-            if (s.tool == Tool.ERASER || s.tool == Tool.TAPE) {
-                val opts = if (s.tool == Tool.ERASER) listOf("Objeto", "Píxel") else listOf("Liso", "Puntos", "Cuadrícula", "Rayas")
+            if (s.tool == Tool.ERASER) {
+                val opts = listOf("Objeto", "Píxel")
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
                     opts.forEachIndexed { i, l -> SegmentedButton(s.style == i, { onChange(s.copy(style = i)) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
                 }
-                if (s.tool == Tool.TAPE) Text("Dibuja la cinta sobre lo que quieras ocultar; tócala con esta herramienta para mostrar u ocultar.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 6.dp))
+            }
+            if (s.tool == Tool.TAPE) {
+                // Recta (de extremo a extremo) o libre (sigue el trazo, para tapar una palabra o un dibujo)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    listOf("Recta", "Libre").forEachIndexed { i, l -> SegmentedButton(s.free == (i == 1), { onChange(s.copy(free = i == 1)) }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(l, maxLines = 1) } }
+                }
+                Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    com.arsnova.ink.Ink.TapeNames.forEachIndexed { i, l -> val on = s.style == i
+                        Box(Modifier.clip(squircle(12)).background(if (on) Ars.Text else Ars.Text.copy(alpha = 0.07f)).clickable { onChange(s.copy(style = i)) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text(l, style = MaterialTheme.typography.labelLarge, color = if (on) Ars.Bg else Ars.Text) } }
+                }
+                if (onTapeAll != null) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton({ onTapeAll(true) }) { Text("Mostrar todas") }
+                    TextButton({ onTapeAll(false) }) { Text("Ocultar todas") }
+                }
+                Text("Pasa la cinta sobre lo que quieras ocultar. Tócala con esta herramienta para destaparla o volver a taparla.", style = MaterialTheme.typography.bodySmall, color = Ars.Muted, modifier = Modifier.padding(top = 6.dp))
             }
             if (s.tool != Tool.LASSO && s.tool != Tool.LASER) {
                 var presets by remember(s.tool) { mutableStateOf(Widths.load(prefs, s.tool)) }

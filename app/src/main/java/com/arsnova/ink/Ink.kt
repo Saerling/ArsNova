@@ -52,33 +52,40 @@ object Ink {
     }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private var hidOf = false
-    private val tapeP = Paint(Paint.ANTI_ALIAS_FLAG)
-    /** Cinta para ocultar (estudio): opaca cuando oculta, translúcida al tocarla. Patrón: 0 liso, 1 puntos, 2 cuadrícula, 3 líneas. */
-    private fun drawTape(c: Canvas, pts: FloatArray, n: Int, width: Float, color: Int, revealed: Boolean) {
-        val x0 = pts[0]; val y0 = pts[1]; val x1 = pts[n - 3]; val y1 = pts[n - 2]; val len = hypot(x1 - x0, y1 - y0).coerceAtLeast(width)
-        c.save(); c.translate(x0, y0); c.rotate(Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat())
-        tapeP.color = if (revealed) (color and 0xFFFFFF) or 0x30000000 else color or 0xFF000000.toInt(); tapeP.style = Paint.Style.FILL
-        c.drawRoundRect(0f, -width / 2, len, width / 2, 4f, 4f, tapePattern(c, len, width, revealed))
-        c.restore()
-    }
+    private val tapeP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.BUTT }
     var tapePatternOf = 0
-    private fun tapePattern(c: Canvas, len: Float, w: Float, revealed: Boolean): Paint {
-        if (!revealed && tapePatternOf > 0) {
-            val p2 = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x55FFFFFF; strokeWidth = 2f }
-            c.save(); c.clipRect(0f, -w / 2, len, w / 2); c.drawRoundRect(0f, -w / 2, len, w / 2, 4f, 4f, tapeP)
-            when (tapePatternOf) { 1 -> { var x = 8f; while (x < len) { var y = -w / 2 + 8f; while (y < w / 2) { c.drawCircle(x, y, 2.5f, p2); y += 14f }; x += 14f } }
-                2 -> { var x = 0f; while (x < len) { c.drawLine(x, -w / 2, x, w / 2, p2); x += 14f }; var y = -w / 2; while (y < w / 2) { c.drawLine(0f, y, len, y, p2); y += 14f } }
-                else -> { var x = -w; while (x < len) { c.drawLine(x, w / 2, x + w, -w / 2, p2); x += 12f } } }
-            c.restore(); return Paint().apply { color = 0 }
+    val TapeNames = listOf("Liso", "Puntos", "Cuadrícula", "Rayas", "Zigzag", "Ondas")
+    private val tapeTiles = HashMap<Int, BitmapShader>()
+    /** Mosaico del dibujo de la cinta (blanco translúcido sobre el color). */
+    private fun tapeTile(pat: Int): BitmapShader? = if (pat <= 0) null else tapeTiles.getOrPut(pat) {
+        val n = 28; val b = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888); val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x70FFFFFF; strokeWidth = 2.6f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+        when (pat) {
+            1 -> { p.style = Paint.Style.FILL; c.drawCircle(7f, 7f, 2.8f, p); c.drawCircle(21f, 21f, 2.8f, p) }
+            2 -> { p.strokeWidth = 1.8f; c.drawLine(0f, 14f, 28f, 14f, p); c.drawLine(14f, 0f, 14f, 28f, p) }
+            3 -> { p.strokeWidth = 5f; p.strokeCap = Paint.Cap.SQUARE; for (k in 0..4) c.drawLine(14f * k, 0f, 14f * k - 28f, 28f, p) }
+            4 -> for (y in listOf(9f, 23f)) c.drawPath(Path().apply { moveTo(-7f, y); var x = 0f; var up = true; while (x <= 35f) { lineTo(x, if (up) y - 5f else y); up = !up; x += 7f } }, p)
+            else -> for (y in listOf(7f, 21f)) c.drawPath(Path().apply { moveTo(0f, y); quadTo(7f, y - 8f, 14f, y); quadTo(21f, y + 8f, 28f, y) }, p)
         }
-        return tapeP
+        BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
     }
+    /** Cinta para ocultar (estudio): opaca cuando oculta, translúcida al tocarla. Recta (2 puntos) o libre (sigue el trazo). */
+    private fun drawTape(c: Canvas, path: Path, width: Float, color: Int, revealed: Boolean) {
+        tapeP.strokeWidth = width; tapeP.shader = null
+        tapeP.color = if (revealed) (color and 0xFFFFFF) or 0x30000000 else color or 0xFF000000.toInt(); c.drawPath(path, tapeP)
+        if (revealed) { tapeP.color = (color and 0xFFFFFF) or 0x66000000; tapeP.strokeWidth = 1.5f; tapeP.pathEffect = tapeDash
+            tapeFill.reset(); tapeOut.strokeWidth = width; tapeOut.getFillPath(path, tapeFill); c.drawPath(tapeFill, tapeP); tapeP.pathEffect = null }
+        else tapeTile(tapePatternOf)?.let { tapeP.shader = it; tapeP.color = -1; c.drawPath(path, tapeP); tapeP.shader = null }
+    }
+    private val tapeDash = DashPathEffect(floatArrayOf(7f, 6f), 0f)
+    private val tapeFill = Path()
+    private val tapeOut = Paint().apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.BUTT }
     private val core = Path()
     private val flat = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     fun styleOf(s: Stroke) = if (s.hl) 6 else s.style
     /** El patrón de la cinta se guarda en los bits altos del id (sin cambiar el formato de archivo). */
-    private fun tapeStyleOf(s: Stroke) = ((s.id ushr 60) and 3).toInt()
+    private fun tapeStyleOf(s: Stroke) = ((s.id ushr 60) and 7).toInt()
 
     fun drawStroke(c: Canvas, s: Stroke, faded: Boolean = false) {
         val st = styleOf(s)
@@ -104,7 +111,7 @@ object Ink {
             10 -> { fill.color = color; fill.shader = null; val rnd = java.util.Random(pts[0].toLong() * 31 + n); var dist = 0f
                 for (k in 1 until n / 3) { val x0 = pts[3 * k - 3]; val y0 = pts[3 * k - 2]; val x1 = pts[3 * k]; val y1 = pts[3 * k + 1]; dist += hypot(x1 - x0, y1 - y0)
                     while (dist > width * 0.8f) { dist -= width * 0.8f; c.drawCircle(x1 + (rnd.nextFloat() - .5f) * width * 0.5f, y1 + (rnd.nextFloat() - .5f) * width * 0.5f, width * (0.25f + 0.25f * pts[3 * k + 2]), fill) } }; return }
-            11 -> { drawTape(c, pts, n, width, color, hidOf); return }
+            11 -> { drawTape(c, path, width, color, hidOf); return }
             13 -> { flat.color = color; flat.strokeWidth = width; flat.pathEffect = DashPathEffect(floatArrayOf(width * 2.6f, width * 2.2f), 0f); c.drawPath(path, flat); flat.pathEffect = null; return }
         }
         fill.color = color; fill.shader = if (style == 2) grain else if (style == 12) wax else null
