@@ -250,13 +250,13 @@ object Widths {
 
 /** Ajuste fino: deslizador + botones de un paso + el número, que se puede tocar para escribir el valor exacto. */
 @Composable
-private fun Stepper(label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, unit: String = "", curve: Float = 1f, onChange: (Float) -> Unit) {
+internal fun Stepper(label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, unit: String = "", curve: Float = 1f, onChange: (Float) -> Unit) {
     var typing by remember { mutableStateOf(false) }
     fun snap(v: Float) = (Math.round(v / step) * step).coerceIn(range.start, range.endInclusive)
     val span = range.endInclusive - range.start
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
         Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-        Box(Modifier.bounceClick { typing = true }.clip(squircle(10)).background(Ars.PillFill).padding(horizontal = 10.dp, vertical = 5.dp)) { Text(wfmt(value) + unit, style = MaterialTheme.typography.labelLarge) }
+        Box(Modifier.bounceClick { typing = true }.clip(squircle(10)).background(Ars.PillFill).padding(horizontal = 10.dp, vertical = 5.dp)) { if (com.arsnova.fx.fxOn("nf_width")) com.arsnova.fx.NumeroFlow(value, MaterialTheme.typography.labelLarge, decimales = if (value % 1f == 0f) 0 else if ((value * 10f) % 1f == 0f) 1 else 2, sufijo = unit) else Text(wfmt(value) + unit, style = MaterialTheme.typography.labelLarge) }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton({ onChange(snap(value - step)) }) { Text("–", style = MaterialTheme.typography.titleLarge) }

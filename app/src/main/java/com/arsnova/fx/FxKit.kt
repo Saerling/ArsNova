@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.*
@@ -54,21 +55,33 @@ import kotlin.random.Random
 /** Interruptores de la biblioteca (SharedPreferences "fx"). Todo empieza apagado. */
 object Fx {
     private val mapa = mutableStateMapOf<String, Boolean>()
+    private val numeros = mutableStateMapOf<String, Int>()
     private var prefs: android.content.SharedPreferences? = null
     fun init(ctx: android.content.Context) {
         if (prefs != null) return
         val p = ctx.applicationContext.getSharedPreferences("fx", android.content.Context.MODE_PRIVATE)
         prefs = p
-        p.all.forEach { (k, v) -> if (v is Boolean) mapa[k] = v }
+        p.all.forEach { (k, v) -> if (v is Boolean) mapa[k] = v; if (v is Int) numeros[k] = v }
     }
+    /** Fuera de Compose (getters, lógica). En pantallas usa [fxOn], que además respeta las vistas previas. */
     fun on(id: String): Boolean = mapa[id] == true
     fun set(id: String, v: Boolean) { mapa[id] = v; prefs?.edit()?.putBoolean(id, v)?.apply() }
     fun setAll(ids: List<String>, v: Boolean) { ids.forEach { mapa[it] = v }; prefs?.edit()?.apply { ids.forEach { putBoolean(it, v) } }?.apply() }
     fun count(ids: List<String>) = ids.count { on(it) }
+    /** Variante elegida de un componente (p. ej. estilo de diálogo 0..11). */
+    fun variante(id: String): Int = numeros["v_$id"] ?: 0
+    fun elegirVariante(id: String, v: Int) { numeros["v_$id"] = v; prefs?.edit()?.putInt("v_$id", v)?.apply() }
 }
 
-/** Aplica [block] solo si el efecto [id] está activado. */
-fun Modifier.fx(id: String, block: Modifier.() -> Modifier): Modifier = if (Fx.on(id)) this.block() else this
+/** Ids forzados a «encendido» dentro de una vista previa: así la previa muestra el componente real de la app con el efecto. */
+val LocalFxForzar = staticCompositionLocalOf { emptySet<String>() }
+
+@Composable fun fxOn(id: String): Boolean = Fx.on(id) || id in LocalFxForzar.current
+
+@Composable fun FxForzar(id: String, content: @Composable () -> Unit) = CompositionLocalProvider(LocalFxForzar provides LocalFxForzar.current + id, content = content)
+
+/** Aplica [block] solo si el efecto [id] está activado (o forzado en una vista previa). */
+fun Modifier.fx(id: String, block: Modifier.() -> Modifier): Modifier = composed { if (Fx.on(id) || id in LocalFxForzar.current) Modifier.block() else Modifier }
 
 private val Acc = Color(0xFF7C9CFF)
 
@@ -331,11 +344,45 @@ fun Modifier.pulso(color: Color = Acc, radio: Dp = 24.dp): Modifier = composed {
     drawBehind { val e = 10.dp.toPx() * t; drawRoundRect(color.copy(alpha = (1 - t) * .45f), Offset(-e, -e), Size(size.width + 2 * e, size.height + 2 * e), CornerRadius(radio.toPx() + e)) }
 }
 
-/** Ripple Button (Magic UI): onda que sale del punto tocado. */
+/** Ripple Button (Magic UI): onda que sale del punto tocado. No consume el toque: el botón sigue funcionando igual. */
 fun Modifier.ondaAlTocar(color: Color = Color.White): Modifier = composed {
     var p by remember { mutableStateOf(Offset.Zero) }; val r = remember { Animatable(1f) }; val s = rememberCoroutineScope()
-    pointerInput(Unit) { detectTapGestures(onPress = { p = it; s.launch { r.snapTo(0f); r.animateTo(1f, tween(600)) } }) }
-        .drawWithContent { drawContent(); if (r.value < 1f) drawCircle(color.copy(alpha = (1 - r.value) * .35f), size.maxDimension * r.value, p) }
+    pointerInput(Unit) { awaitPointerEventScope { while (true) { val e = awaitPointerEvent(); val c = e.changes.firstOrNull() ?: continue
+        if (c.pressed && !c.previousPressed) { p = c.position; s.launch { r.snapTo(0f); r.animateTo(1f, tween(650)) } } } } }
+        .drawWithContent { drawContent(); if (r.value < 1f) drawCircle(color.copy(alpha = (1 - r.value) * .3f), size.maxDimension * r.value, p) }
+}
+
+/** Switch (coss ui): pista en píldora y pomo con muelle. */
+@Composable
+fun InterruptorCoss(activado: Boolean, onChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    val x by animateFloatAsState(if (activado) 1f else 0f, spring(dampingRatio = .6f, stiffness = 600f), label = "sw")
+    val pista by animateColorAsState(if (activado) color else Color(0x40808080), label = "pista")
+    Box(modifier.size(44.dp, 26.dp).clip(Pildora).background(pista).then(if (onChange != null) Modifier.clickable(remember { MutableInteractionSource() }, null) { onChange(!activado) } else Modifier).padding(3.dp)) {
+        Box(Modifier.offset { IntOffset((x * 18.dp.toPx()).roundToInt(), 0) }.size(20.dp).shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White))
+    }
+}
+
+/** Checkbox (coss ui): casilla cuadrada con la marca que se dibuja. */
+@Composable
+fun CasillaCoss(marcada: Boolean, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    val f by animateFloatAsState(if (marcada) 1f else 0f, tween(220), label = "cb")
+    Canvas(modifier.size(22.dp)) {
+        drawRoundRect(if (marcada) color else Color.Transparent, cornerRadius = CornerRadius(6.dp.toPx()))
+        if (!marcada) drawRoundRect(Color(0xFF8A8A92), cornerRadius = CornerRadius(6.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+        if (f > 0f) { val p = Path().apply { moveTo(size.width * .25f, size.height * .52f); lineTo(size.width * .43f, size.height * .7f); lineTo(size.width * .76f, size.height * .32f) }
+            val m = PathMeasure(); m.setPath(p, false); val d = Path(); m.getSegment(0f, m.length * f, d); drawPath(d, Color.White, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)) }
+    }
+}
+
+/** Cuenta desde 0 hasta el número al aparecer (Magic UI Number Ticker). Devuelve el texto con el resto de caracteres intactos. */
+@Composable
+fun textoContando(texto: String): String {
+    val n = texto.filter { it.isDigit() }.toLongOrNull() ?: return texto
+    val a = remember(texto) { Animatable(0f) }
+    LaunchedEffect(texto) { a.animateTo(1f, tween(1100, easing = FastOutSlowInEasing)) }
+    val actual = (n * a.value).toLong().toString()
+    val primero = texto.indexOfFirst { it.isDigit() }; val ultimo = texto.indexOfLast { it.isDigit() }
+    return texto.substring(0, primero) + actual + texto.substring(ultimo + 1)
 }
 
 /** Confetti (Magic UI). Llama a disparar() para lanzarlo. */
@@ -652,8 +699,8 @@ fun SegmentadoDeslizante(opciones: List<String>, sel: Int, onSel: (Int) -> Unit,
     val x by animateFloatAsState(anchos.take(sel).sum(), spring(dampingRatio = .75f, stiffness = 500f), label = "x")
     val w by animateFloatAsState(anchos.getOrElse(sel) { 0f }, spring(dampingRatio = .75f, stiffness = 500f), label = "w")
     val d = LocalDensity.current
-    Box(modifier.clip(Pildora).background(Color(0x1FFFFFFF)).padding(3.dp)) {
-        Box(Modifier.offset { IntOffset(x.roundToInt(), 0) }.width(with(d) { w.toDp() }).matchParentSize().let { it }.clip(Pildora))
+    val fondo = LocalContentColor.current.copy(alpha = .08f)
+    Box(modifier.clip(Pildora).background(fondo).padding(3.dp)) {
         Box(Modifier.offset { IntOffset(x.roundToInt(), 0) }.size(with(d) { w.toDp() }, 36.dp).clip(Pildora).background(color))
         Row { opciones.forEachIndexed { i, o -> Box(Modifier.height(36.dp).onSizeChanged { s -> anchos = anchos.toMutableList().also { it[i] = s.width.toFloat() } }.clip(Pildora).clickable { onSel(i) }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { Text(o, color = if (i == sel) Color.White else Color.Unspecified, style = MaterialTheme.typography.labelLarge) } } }
     }
@@ -783,7 +830,7 @@ fun OndaAudio(activo: Boolean, modifier: Modifier = Modifier.height(40.dp).width
 @Composable
 fun EstadoVacio(icono: String, titulo: String, detalle: String, modifier: Modifier = Modifier, accion: (@Composable () -> Unit)? = null) {
     Column(modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(72.dp).clip(RoundedCornerShape(24.dp)).background(Color(0x1FFFFFFF)).aparecerDifuso(), contentAlignment = Alignment.Center) { Text(icono, fontSize = 32.sp) }
+        Box(Modifier.size(72.dp).clip(RoundedCornerShape(24.dp)).background(LocalContentColor.current.copy(alpha = .08f)).aparecerDifuso(), contentAlignment = Alignment.Center) { Text(icono, fontSize = 32.sp) }
         Spacer(Modifier.height(14.dp)); Text(titulo, style = MaterialTheme.typography.titleMedium, modifier = Modifier.aparecerDifuso(1)); Text(detalle, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, modifier = Modifier.aparecerDifuso(2).alpha(.7f))
         accion?.let { Spacer(Modifier.height(14.dp)); it() }
     }

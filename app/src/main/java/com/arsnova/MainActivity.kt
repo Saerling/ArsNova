@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val prefs = remember { getSharedPreferences("ars", MODE_PRIVATE) }
             var theme by remember { mutableIntStateOf(prefs.getInt("theme", 0)) }
-            ArsTheme(theme) {
+            ArsTheme(theme) { androidx.compose.foundation.layout.Box {
                 var open by rememberSaveable { mutableStateOf<String?>(null) }
                 var settings by rememberSaveable { mutableStateOf(false) }
                 val screen = when { settings -> "s"; open == null -> "l"; else -> "e:$open" }
@@ -44,7 +44,8 @@ class MainActivity : ComponentActivity() {
                         else -> { BackHandler { open = null }; EditorScreen(repo, sc.substring(2)) { open = null } }
                     }
                 }
-            }
+                com.arsnova.ui.FxCapasArsNova()
+            } }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.arsnova.ui
 
+import com.arsnova.fx.*
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.*
 import androidx.compose.foundation.horizontalScroll
@@ -143,13 +144,13 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
 }
 
 @Composable
-private fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
+internal fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
     val thumb by produceState<ImageBitmap?>(null, m.id, m.updated) {
         value = withContext(Dispatchers.IO) { repo.thumb(m.id).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path)?.asImageBitmap() } }
     }
     val shape = RoundedCornerShape(6.dp, 16.dp, 16.dp, 6.dp)
     Column(modifier) {
-        Box(Modifier.aspectRatio(0.75f).fillMaxWidth().shadow(if (Ars.dark) 0.dp else 8.dp, shape, spotColor = Color.Black.copy(alpha = 0.35f)).clip(shape).background(Color.White).border(1.dp, Ars.GlassBorder, shape)) {
+        Box(Modifier.fx("tilt") { inclinar(8f) }.aspectRatio(0.75f).fillMaxWidth().shadow(if (Ars.dark) 0.dp else 8.dp, shape, spotColor = Color.Black.copy(alpha = 0.35f)).clip(shape).background(Color.White).border(1.dp, Ars.GlassBorder, shape).fx("magiccard") { foco(Color.White) }.fx("glare") { destello() }) {
             if (m.pattern > 0) {
                 CoverArt(m.cover, m.pattern, Modifier.fillMaxSize())
             } else {

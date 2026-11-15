@@ -1,5 +1,6 @@
 package com.arsnova.ui
 
+import com.arsnova.fx.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Row
@@ -24,7 +25,7 @@ import kotlin.math.sin
 @Composable
 fun Pill(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     Surface(modifier, shape = RoundedCornerShape(50), color = Ars.Glass, shadowElevation = 4.dp, border = BorderStroke(1.dp, Ars.GlassBorder)) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+        Row(Modifier.fx("noise") { noise(.07f) }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
 
@@ -61,7 +62,7 @@ fun Ambient(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 /** Grupo de ajustes: tarjeta de esquinas continuas. */
 @Composable
 fun Group(content: @Composable () -> Unit) {
-    Surface(Modifier.padding(horizontal = 16.dp), shape = squircle(26), color = Ars.Card) {
+    Surface(Modifier.fx("blurfade") { aparecerDifuso() }.padding(horizontal = 16.dp), shape = squircle(26), color = Ars.Card) {
         MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(surface = Color.Transparent), typography = MaterialTheme.typography) { androidx.compose.foundation.layout.Column { content() } }
     }
 }

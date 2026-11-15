@@ -1,5 +1,6 @@
 package com.arsnova.ui
 
+import com.arsnova.fx.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.pointer.pointerInput
@@ -55,7 +56,7 @@ fun squircle(radius: Int): Shape = when (Look.corners) {
 @Composable
 fun Modifier.bounceClick(enabled: Boolean = true, scale: Float = 0.9f, role: Role? = null, onClick: () -> Unit): Modifier {
     val src = remember { MutableInteractionSource() }
-    return (if (Look.bounce) pressBounce(src, scale) else this).clickable(src, if (Look.bounce) null else androidx.compose.foundation.LocalIndication.current, enabled = enabled, role = role, onClick = onClick)
+    return (if (Look.bounce) pressBounce(src, scale) else this).fx("ripple") { ondaAlTocar(Ars.Text) }.clickable(src, if (Look.bounce) null else androidx.compose.foundation.LocalIndication.current, enabled = enabled, role = role, onClick = onClick)
 }
 
 @Composable
@@ -82,7 +83,7 @@ fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean 
 
 @Composable
 fun Switch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) =
-    AppSwitch(checked, onCheckedChange, modifier, enabled)
+    if (fxOn("switch")) InterruptorCoss(checked, if (enabled) onCheckedChange else null, modifier, Brand) else AppSwitch(checked, onCheckedChange, modifier, enabled)
 
 @Composable
 fun HorizontalDivider(modifier: Modifier = Modifier, color: Color = Ars.Line) =
@@ -101,7 +102,7 @@ fun AlertDialog(onDismissRequest: () -> Unit, confirmButton: @Composable () -> U
         val a = remember { androidx.compose.animation.core.Animatable(0f) }
         androidx.compose.runtime.LaunchedEffect(Unit) { a.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 420f)) }
         androidx.compose.material3.Surface(modifier.alpha(a.value.coerceIn(0f, 1f)).scale(0.92f + 0.08f * a.value), shape = squircle(30), color = Ars.Sheet, border = BorderStroke(1.dp, Ars.GlassBorder), shadowElevation = 18.dp) {
-            androidx.compose.foundation.layout.Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 12.dp)) {
+            androidx.compose.foundation.layout.Column(Modifier.estiloDialogoFx().padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 12.dp)) {
                 if (title != null) CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.titleLarge, LocalContentColor provides Ars.Text) { title() }
                 if (text != null) Box(Modifier.padding(top = if (title != null) 12.dp else 0.dp).weight(1f, fill = false)) {
                     CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyMedium, LocalContentColor provides Ars.Text) { text() } }

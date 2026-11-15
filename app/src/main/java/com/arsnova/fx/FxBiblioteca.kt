@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** Un componente de la biblioteca. [id] es la clave del interruptor; [uso] dice dónde actúa en esta app. */
-data class FxItem(val id: String, val nombre: String, val origen: String, val uso: String, val demo: String = id.substringAfter('.'))
+data class FxItem(val id: String, val nombre: String, val origen: String, val uso: String, val demo: String = id, val vista: (@Composable () -> Unit)? = null)
 
 val OrigenesFx = listOf("blocks.so", "Magic UI", "coss ui", "opensourceui", "NumberFlow", "Motion Primitives")
 val UrlOrigenFx = mapOf(
@@ -52,7 +52,7 @@ fun BibliotecaFxPantalla(items: List<FxItem>, onBack: () -> Unit, modifier: Modi
             }
         }
         OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp), placeholder = { Text("Buscar (p. ej. desenfoque, números, lápiz)") }, singleLine = true, shape = RoundedCornerShape(18.dp))
-        Text("Todo empieza apagado. Toca un componente para ver la vista previa; el interruptor lo activa en la app.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(.6f))
+        Text("Todo empieza apagado. Toca un componente para verlo funcionando con las piezas de la app; el interruptor lo aplica en la app al momento.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(.6f))
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             OrigenesFx.forEach { origen ->
                 val grupo = filtrados.filter { it.origen == origen }
@@ -77,8 +77,13 @@ fun BibliotecaFxPantalla(items: List<FxItem>, onBack: () -> Unit, modifier: Modi
                                 }
                                 Switch(on, { v -> Fx.set(it.id, v) })
                             }
-                            if (exp) Box(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp).fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF111114)).padding(14.dp), contentAlignment = Alignment.Center) {
-                                MaterialTheme(colorScheme = darkColorScheme(primary = acento)) { CompositionLocalProvider(LocalContentColor provides Color.White) { DemoFx(it.demo) } }
+                            if (exp) Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp).fillMaxWidth()) {
+                                Text(if (it.vista != null) "Vista previa: así se ve en la app" else "Vista previa", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(.5f), modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
+                                Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.background).border(1.dp, MaterialTheme.colorScheme.onBackground.copy(.08f), RoundedCornerShape(16.dp)).padding(14.dp), contentAlignment = Alignment.Center) {
+                                    val v = it.vista
+                                    if (v != null) FxForzar(it.id) { v() }
+                                    else MaterialTheme(colorScheme = darkColorScheme(primary = acento)) { CompositionLocalProvider(LocalContentColor provides Color.White) { DemoFx(it.demo) } }
+                                }
                             }
                         }
                     }

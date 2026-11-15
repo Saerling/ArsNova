@@ -43,14 +43,15 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var fxLib by remember { mutableStateOf(false) }
-    if (fxLib) { androidx.activity.compose.BackHandler { fxLib = false }; com.arsnova.fx.BibliotecaFxPantalla(com.arsnova.fx.CatalogoArsNova, { fxLib = false }); return }
+    if (fxLib) { androidx.activity.compose.BackHandler { fxLib = false }; com.arsnova.fx.BibliotecaFxPantalla(remember { catalogoArsNova(p) }, { fxLib = false }); return }
 
     @Composable fun Header(t: String) = Text(t, style = MaterialTheme.typography.labelLarge, color = Ars.Muted, modifier = Modifier.padding(start = 30.dp, top = 26.dp, bottom = 8.dp))
     @Composable fun Toggle(t: String, sub: String, v: Boolean, on: (Boolean) -> Unit) =
         ListItem({ Text(t) }, supportingContent = { Text(sub) }, trailingContent = { Switch(v, on) }, modifier = Modifier.clickable { on(!v) })
     @Composable fun Choice(t: String, opts: List<String>, sel: Int, on: (Int) -> Unit) = Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
         Text(t, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        if (com.arsnova.fx.fxOn("segmented")) androidx.compose.runtime.CompositionLocalProvider(LocalContentColor provides Ars.Text) { com.arsnova.fx.SegmentadoDeslizante(opts, sel, on, color = Brand) }
+        else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             opts.forEachIndexed { i, o -> SegmentedButton(sel == i, { on(i) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(o, maxLines = 1) } }
         }
     }
@@ -68,7 +69,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 }
                 Choice("Esquinas", listOf("Mochy", "Continuas (BitChord)", "Redondas"), Look.corners) { Look.corners = it; Look.save(p) }
                 Choice("Mesa bajo la hoja", listOf("Según el tema", "Clara", "Oscura"), Look.desk) { Look.desk = it; Look.save(p) }
-                ListItem({ Text("Biblioteca de animaciones y funciones") }, supportingContent = { Text("${com.arsnova.fx.Fx.count(com.arsnova.fx.CatalogoArsNova.map { it.id })} de ${com.arsnova.fx.CatalogoArsNova.size} activas · Magic UI, Motion Primitives, NumberFlow y más") },
+                ListItem({ Text("Biblioteca de animaciones y funciones") }, supportingContent = { Text("${com.arsnova.fx.Fx.count(IdsFxArsNova)} de ${IdsFxArsNova.size} activas · Magic UI, Motion Primitives, NumberFlow y más") },
                     trailingContent = { Text("›", style = MaterialTheme.typography.titleLarge) }, modifier = Modifier.clickable { fxLib = true })
                 Toggle("Rebote al pulsar", "Los botones se encogen bajo el dedo y vuelven con un pequeño rebote", Look.bounce) { Look.bounce = it; Look.save(p) }
                 var art by remember { mutableStateOf(p.getBoolean("barArt", true)) }; var grp by remember { mutableStateOf(p.getBoolean("grouped", false)) }
