@@ -40,7 +40,13 @@ object Nib {
     private fun ease(t: Float) = t * (2f - t)
 
     /** Nodos finales del trazo: x, y, radio. */
-    fun nodes(pts: FloatArray, n: Int, width: Float, style: Int): FloatArray {
+    /**
+     * [stable] (opcional) recibe en [0] cuántos nodos del principio ya son definitivos aunque el trazo siga creciendo:
+     * el suavizado, la inercia del radio y la curva solo miran unas pocas muestras hacia delante, y el afinado de salida
+     * solo toca el final. El lienzo guarda esa parte ya construida y cada cuadro solo arma la cola (ver Ink.Live).
+     */
+    fun nodes(pts: FloatArray, n: Int, width: Float, style: Int, stable: IntArray? = null): FloatArray {
+        stable?.set(0, 0)
         val pen = pen(style)
         val raw = n / 3
         if (raw == 0) return FloatArray(0)
@@ -78,6 +84,13 @@ object Nib {
             if (lout > 0f && total - run[i] < lout) f = min(f, pen.tip + (1f - pen.tip) * ease((total - run[i]) / lout))
             rs[i] = max(rs[i] * f, 0.18f)
         }
+        // muestra más avanzada que ya no cambiará: fuera del afinado de salida y con margen para el suavizado y la curva
+        var sRaw = -1
+        if (stable != null && total * 0.4f > max(pen.taperIn, pen.taperOut) * width && total > width) {
+            val lim = total - pen.taperOut * width - width; var i = m - 6
+            while (i > 0 && run[i] > lim) i--
+            sRaw = i
+        }
         // 4) curva: Catmull-Rom entre muestras, más fina donde el tramo es largo o el giro es cerrado
         var out = FloatArray(m * 6); var k = 0
         fun put(x: Float, y: Float, r: Float) { if (k + 3 > out.size) out = out.copyOf(out.size * 2); out[k++] = x; out[k++] = y; out[k++] = r }
@@ -101,6 +114,7 @@ object Nib {
                 val y = 0.5f * (2 * y1 + (y2 - ys[a]) * t + (2 * ys[a] - 5 * y1 + 4 * y2 - ys[b]) * t2 + (3 * y1 - ys[a] - 3 * y2 + ys[b]) * t3)
                 put(x, y, rs[i] + (rs[i + 1] - rs[i]) * t)
             }
+            if (i + 1 == sRaw) stable!![0] = k / 3
         }
         return if (k == out.size) out else out.copyOf(k)
     }
@@ -123,13 +137,18 @@ object Nib {
 
     /** Contorno relleno del trazo para los lápices de ancho variable (0-4) y la caligrafía (7). */
     fun path(pts: FloatArray, n: Int, width: Float, style: Int): Path {
-        val nd = nodes(pts, n, width, style); val cnt = nd.size / 3
-        val path = Path(); if (cnt == 0) return path
+        val nd = nodes(pts, n, width, style); val path = Path()
+        addRange(path, nd, 0, nd.size / 3 - 1, width, style); return path
+    }
+
+    /** Añade a [path] el tramo entre los nodos [from] y [to] (incluidos), con tapa redonda en ambos extremos. */
+    fun addRange(path: Path, nd: FloatArray, from: Int, to: Int, width: Float, style: Int) {
+        val cnt = to + 1; if (to < from || from < 0 || cnt > nd.size / 3) return
         val buf = FloatArray(128)
-        if (style == 7) return nibPath(path, buf, nd, cnt, width)
-        if (cnt == 1) { disc(path, buf, nd[0], nd[1], nd[2]); return path }
+        if (style == 7) { nibPath(path, buf, nd, from, cnt, width); return }
+        if (to == from) { disc(path, buf, nd[3 * from], nd[3 * from + 1], nd[3 * from + 2]); return }
         var pux = 0f; var puy = 0f; var have = false
-        for (i in 0 until cnt - 1) {
+        for (i in from until cnt - 1) {
             val ax = nd[3 * i]; val ay = nd[3 * i + 1]; val ar = nd[3 * i + 2]
             val bx = nd[3 * i + 3]; val by = nd[3 * i + 4]; val br = nd[3 * i + 5]
             val d = hypot(bx - ax, by - ay); if (d < 1e-3f) continue
@@ -153,17 +172,16 @@ object Nib {
             pux = ux; puy = uy; have = true
         }
         disc(path, buf, nd[3 * cnt - 3], nd[3 * cnt - 2], nd[3 * cnt - 1])
-        return path
     }
 
     /** Plumilla plana de verdad: se barre el filo (más un grosor mínimo perpendicular para los perfiles). */
-    private fun nibPath(path: Path, buf: FloatArray, nd: FloatArray, cnt: Int, width: Float): Path {
+    private fun nibPath(path: Path, buf: FloatArray, nd: FloatArray, from: Int, cnt: Int, width: Float): Path {
         val e = max(width * 0.07f, 0.4f)
-        if (cnt == 1) { val x = nd[0]; val y = nd[1]; val h = nd[2]
+        if (cnt - from == 1) { val x = nd[3 * from]; val y = nd[3 * from + 1]; val h = nd[3 * from + 2]
             buf[0] = x - NIB_X * h + NIB_Y * e; buf[1] = y - NIB_Y * h - NIB_X * e; buf[2] = x + NIB_X * h + NIB_Y * e; buf[3] = y + NIB_Y * h - NIB_X * e
             buf[4] = x + NIB_X * h - NIB_Y * e; buf[5] = y + NIB_Y * h + NIB_X * e; buf[6] = x - NIB_X * h - NIB_Y * e; buf[7] = y - NIB_Y * h + NIB_X * e
             emit(path, buf, 4); return path }
-        for (i in 0 until cnt - 1) {
+        for (i in from until cnt - 1) {
             val ax = nd[3 * i]; val ay = nd[3 * i + 1]; val ah = nd[3 * i + 2]
             val bx = nd[3 * i + 3]; val by = nd[3 * i + 4]; val bh = nd[3 * i + 5]
             buf[0] = ax - NIB_X * ah; buf[1] = ay - NIB_Y * ah; buf[2] = ax + NIB_X * ah; buf[3] = ay + NIB_Y * ah

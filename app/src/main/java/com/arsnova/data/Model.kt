@@ -42,8 +42,16 @@ class Stroke(
     val t: Long = 0,
     val style: Int = 0,
     var hid: Boolean = false,
+    /** Relleno de una forma cerrada (0 = sin relleno). Campo opcional: las notas antiguas no lo traen y se abren igual. */
+    var fill: Int = 0,
+    /** Inclinación media del lápiz en el trazo, 0 (vertical) a 1 (tumbado): el lápiz de grafito sombrea más ancho y más claro. */
+    val tilt: Float = 0f,
 ) {
+    /** Copia con otros puntos (duplicar, partir con el borrador) sin perder estilo, relleno ni inclinación. */
+    fun copy(id: Long, pts: FloatArray) = Stroke(id, color, width, hl, pts, t, style, hid, fill, tilt)
+
     @Transient var path: Path? = null
+    @Transient var fillPath: Path? = null
     @Transient private var b: RectF? = null
     val bounds: RectF
         get() = b ?: RectF().also { r ->
@@ -53,28 +61,28 @@ class Stroke(
             var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var rr = -Float.MAX_VALUE; var bb = -Float.MAX_VALUE; var i = 0
             while (i + 1 < pts.size) { val x = pts[i]; val y = pts[i + 1]; if (x < l) l = x; if (x > rr) rr = x; if (y < t) t = y; if (y > bb) bb = y; i += 3 }
             if (l > rr) { l = 0f; rr = 0f; t = 0f; bb = 0f }
-            val m = (if (style == 8 || style == 9) width * 2.4f else width).coerceAtLeast(1f)
+            val m = (if (style == 8 || style == 9) width * 2.4f else width * (1f + 1.6f * tilt)).coerceAtLeast(1f)
             r.set(l - m, t - m, rr + m, bb + m); b = r
         }
 
     fun offset(dx: Float, dy: Float) {
         var i = 0
         while (i < pts.size) { pts[i] += dx; pts[i + 1] += dy; i += 3 }
-        path?.offset(dx, dy); b?.offset(dx, dy)
+        path?.offset(dx, dy); fillPath?.offset(dx, dy); b?.offset(dx, dy)
     }
 
     /** Gira el trazo alrededor de (cx, cy). */
     fun rotate(cx: Float, cy: Float, deg: Float) {
         val a = Math.toRadians(deg.toDouble()); val co = Math.cos(a).toFloat(); val si = Math.sin(a).toFloat(); var i = 0
         while (i + 1 < pts.size) { val dx = pts[i] - cx; val dy = pts[i + 1] - cy; pts[i] = cx + dx * co - dy * si; pts[i + 1] = cy + dx * si + dy * co; i += 3 }
-        path = null; b = null
+        path = null; fillPath = null; b = null
     }
 
     /** Escala el trazo (puntos y grosor) alrededor de (ox, oy). */
     fun scale(ox: Float, oy: Float, f: Float) {
         var i = 0
         while (i < pts.size) { pts[i] = ox + (pts[i] - ox) * f; pts[i + 1] = oy + (pts[i + 1] - oy) * f; i += 3 }
-        width *= f; path = null; b = null
+        width *= f; path = null; fillPath = null; b = null
     }
 }
 

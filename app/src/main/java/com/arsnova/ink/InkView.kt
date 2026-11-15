@@ -53,6 +53,13 @@ class InkView(context: Context) : View(context) {
     private var lx0 = 0f; private var ly0 = 0f
     /** Forma que se dibuja arrastrando con el lápiz: 0 ninguna, 1 línea, 2 flecha, 3 rectángulo, 4 elipse, 5 triángulo, 6 rombo. */
     var shape = 0
+    /** Relleno de las formas cerradas que se dibujan con la herramienta de formas (0 = solo contorno). */
+    var shapeFill = 0
+    /** Regla: las rectas se ajustan a múltiplos de 15° y los rectángulos/elipses casi regulares a cuadrado/círculo. */
+    var shapeSnap = true
+    private val live = Ink.Live()
+    private var tiltSum = 0f; private var tiltN = 0
+    private fun curTilt() = if ((curStyle == 2 || curStyle == 12) && tiltN > 0) (Math.round(tiltSum / tiltN * 20f) / 20f) else 0f
     /** Resaltador con regla: cada trazo es una recta de donde se apoya a donde se suelta. */
     var hlStraight = false
     private var shaping = false
@@ -65,6 +72,7 @@ class InkView(context: Context) : View(context) {
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
     var tapMode = false
     var onStrokeTap: (Stroke) -> Unit = {}
+    private var snapClosed = false
     private var shapeLocked = false; private var tdx = 0f; private var tdy = 0f
     var desk = DESK
         set(v) { if (field != v) { field = v; cacheDirty = true; invalidate() } }
@@ -127,6 +135,7 @@ class InkView(context: Context) : View(context) {
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF3478F6.toInt(); strokeWidth = 2f; pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f) }
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val knob = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val livePaint = Paint(Paint.ANTI_ALIAS_FLAG); private val liveFill = Path()
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x88000000.toInt(); strokeWidth = 2f }
 
     private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, NAV, TAP, LASER }
@@ -150,9 +159,11 @@ class InkView(context: Context) : View(context) {
 
     private val snap = Runnable {
         if (shapesOn && mode == Mode.DRAW && curN >= 18) {
-            snapped = true; sx0 = cur[0]; sy0 = cur[1]
-            val sh = Shapes.recognize(cur, curN)
-            if (sh != null) {
+            val fit = Shapes.fit(cur, curN)
+            // no se parece a ninguna figura (letra, garabato): se deja como está y se puede seguir escribiendo
+            if (fit != null && fit.kind == Shapes.NONE) return@Runnable
+            snapped = true; sx0 = cur[0]; sy0 = cur[1]; predN = 0; snapClosed = fit?.closed == true
+            if (fit != null) { val sh = fit.pts
                 var avg = 0f; var i = 2; while (i < curN) { avg += cur[i]; i += 3 }; avg /= (curN / 3)
                 curN = 0; var j = 0; while (j < sh.size) { add(sh[j], sh[j + 1], avg); j += 2 }; shapeLocked = true
             } else line(cur[curN - 3], cur[curN - 2])
@@ -183,7 +194,7 @@ class InkView(context: Context) : View(context) {
     /** Copia la selección un poco desplazada y deja seleccionada la copia. */
     fun duplicateSelection() {
         val p = page ?: return; if (!hasSelection()) return
-        val ns = sel.mapIndexed { i, s -> Stroke(System.nanoTime() + i, s.color, s.width, s.hl, s.pts.copyOf(), s.t, s.style).also { it.offset(36f, 36f) } }
+        val ns = sel.mapIndexed { i, s -> s.copy(System.nanoTime() + i, s.pts.copyOf()).also { it.offset(36f, 36f) } }
         val ni = selIt.mapIndexed { i, t -> Item(System.nanoTime() + 1000 + i, t.kind, t.x + 36f, t.y + 36f, t.w, t.h, t.text, t.file, t.size, t.color, t.align, t.bold) }
         val op = Op.Paste(ns, ni); apply(op); push(op)
         sel.clear(); selIt.clear(); sel += ns; selIt += ni; selBounds.offset(36f, 36f)
@@ -394,15 +405,24 @@ class InkView(context: Context) : View(context) {
         var pc = pcache[p.id]
         if (pc == null || (res > 0 && pc.res != res)) {
             val r = if (res > 0) res else (pc?.res ?: targetRes())
-            pc?.bmp?.recycle()
-            pc = PC(Bitmap.createBitmap((Ink.PAGE_W * r).toInt(), (Ink.PAGE_H * r).toInt(), Bitmap.Config.ARGB_8888), r); pcache[p.id] = pc
+            pc?.bmp?.recycle(); pcache.remove(p.id)
+            pc = PC(newBitmap(r), r).let { PC(it.bmp, it.bmp.width / Ink.PAGE_W) }; pcache[p.id] = pc
         }
         if (!pc.valid) { val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); paintPage(cc, p, null); pc.valid = true }
         return pc.bmp
     }
 
+    /** Bitmap de página; si no hay memoria se sueltan las cachés y se baja la resolución en vez de cerrar la app. */
+    private fun newBitmap(res: Float): PC {
+        var r = res
+        while (true) {
+            try { return PC(Bitmap.createBitmap((Ink.PAGE_W * r).toInt().coerceAtLeast(8), (Ink.PAGE_H * r).toInt().coerceAtLeast(8), Bitmap.Config.ARGB_8888), r) }
+            catch (e: OutOfMemoryError) { dropCache(); if (r <= 0.2f) throw e; r = (r * 0.6f).coerceAtLeast(0.2f) }
+        }
+    }
+
     /** Papel, elementos y trazos de [p] (salvo lo seleccionado). Con [only] se saltan los trazos que no la tocan. */
-    private fun paintPage(cc: Canvas, p: Page, only: RectF?) {
+    private fun paintPage(cc: Canvas, p: Page, only: RectF?) = synchronized(Ink) {
         val on = p === page
         Ink.drawPaper(cc, p)
         for (it in p.items) if (!on || it !in selIt) Ink.drawItem(cc, it)
@@ -420,9 +440,10 @@ class InkView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun drawViewport(c: Canvas, first: Int, last: Int) {
+    private fun drawViewport(c: Canvas, first: Int, last: Int): Boolean {
         var b = vp
-        if (b == null || b.width != width || b.height != height) { b?.recycle(); b = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); vp = b; vpValid = false }
+        if (b == null || b.width != width || b.height != height) { b?.recycle(); vp = null; vpValid = false
+            b = try { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) } catch (e: OutOfMemoryError) { return false }; vp = b }
         if (!vpOk()) {
             val cc = Canvas(b); cc.drawColor(desk)
             for (i in first..last) {
@@ -433,7 +454,7 @@ class InkView(context: Context) : View(context) {
             }
             vpValid = true; vpScale = scale; vpTx = tx; vpTy = ty
         }
-        c.drawBitmap(b, 0f, 0f, null)
+        c.drawBitmap(b, 0f, 0f, null); return true
     }
     private fun pageShadow(c: Canvas) {
         c.drawRoundRect(-3f, 3f, Ink.PAGE_W + 3f, Ink.PAGE_H + 9f, 10f, 10f, shadow)
@@ -441,7 +462,9 @@ class InkView(context: Context) : View(context) {
     }
 
     // ---------- draw ----------
-    override fun onDraw(c: Canvas) {
+    override fun onDraw(c: Canvas) = synchronized(Ink) { drawAll(c) }
+
+    private fun drawAll(c: Canvas) {
         if (pages.isEmpty() || width == 0 || height == 0) return
         if (!fitted) doFit()
         c.drawColor(desk)
@@ -449,7 +472,7 @@ class InkView(context: Context) : View(context) {
         val res = if (settled) targetRes() else -1f
         val step = (Ink.PAGE_H + gap) * scale
         val first = (-ty / step).toInt().coerceIn(0, pages.size - 1); val last = ((height - ty) / step).toInt().coerceIn(first, pages.size - 1)
-        if (settled && scale > maxRes * 1.12f) drawViewport(c, first, last)
+        if (settled && scale > maxRes * 1.12f && drawViewport(c, first, last)) {}
         else for (i in first..last) {
             val b = pageBitmap(pages[i], res)
             c.save(); c.concat(matrix); c.translate(0f, top(i)); pageShadow(c)
@@ -461,7 +484,9 @@ class InkView(context: Context) : View(context) {
                 if (k == markSel) { markPaint.style = Paint.Style.STROKE; markPaint.strokeWidth = dp(2f) / scale; markPaint.color = 0xFFFF9800.toInt(); c.drawRoundRect(m.r, 8f, 8f, markPaint) }
                 c.restore() } }
         Ink.darkPaper = Ink.isDark(page?.paper ?: -1)
-        if (pcache.size > last - first + 3) { val keep = (maxOf(0, first - 1)..minOf(pages.size - 1, last + 1)).map { pages[it].id }.toHashSet()
+        // a mucha resolución cada página cacheada pesa ~30 MB: solo se guardan las visibles
+        val pad = if (targetRes() > 1.2f) 0 else 1
+        if (pcache.size > last - first + 1 + 2 * pad) { val keep = (maxOf(0, first - pad)..minOf(pages.size - 1, last + pad)).map { pages[it].id }.toHashSet()
             pcache.keys.filter { it !in keep }.forEach { pcache.remove(it)?.bmp?.recycle() } }
         val center = ((height / 2f - ty) / step).toInt().coerceIn(0, pages.size - 1)
         if (center != reported) { reported = center; post { onPage(center) } }
@@ -480,7 +505,10 @@ class InkView(context: Context) : View(context) {
             knob.style = Paint.Style.STROKE; knob.color = dash.color; c.drawCircle(selBounds.centerX(), ry, dp(8f) / scale / k, knob)
             c.restore()
         }
-        if (mode == Mode.DRAW && curN > 0) Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else penWidth, curStyle, if (curHl) hlColor(color) else color, tapePattern)
+        if (mode == Mode.DRAW && curN > 0) { val tl = curTilt()
+            if (shaping && shapeFill != 0 && shape >= 3 && curN >= 9) { livePaint.color = shapeFill; liveFill.rewind(); liveFill.moveTo(cur[0], cur[1]); var i = 3; while (i < curN) { liveFill.lineTo(cur[i], cur[i + 1]); i += 3 }; liveFill.close(); c.drawPath(liveFill, livePaint) }
+            Ink.drawLive(c, cur, curN + predN, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else Ink.tiltWidth(penWidth, curStyle, tl), curStyle,
+                if (curHl) hlColor(color) else Ink.tiltColor(color, curStyle, tl), tapePattern, if (snapped || shaping || tl > 0f) null else live) }
         if (mode == Mode.LASSO) { dash.strokeWidth = 2f / scale; c.drawPath(lasso, dash) }
         c.restore()
         if (laser.isNotEmpty()) {
@@ -541,7 +569,8 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> if (mode == Mode.NAV) navMove(e) else moveDraw(e)
             MotionEvent.ACTION_POINTER_UP -> {
                 if (mode == Mode.NAV) navReset(e, e.actionIndex)
-                else if (e.getPointerId(e.actionIndex) == pid) { endDraw(); mode = Mode.NONE }
+                // el sistema avisa (FLAG_CANCELED) cuando decide que ese contacto era la palma: lo dibujado con él se descarta
+                else if (e.getPointerId(e.actionIndex) == pid) { if (e.flags and FLAG_CANCELED != 0) cancelDraw() else endDraw(); mode = Mode.NONE }
             }
             MotionEvent.ACTION_UP -> {
                 if (mode == Mode.NAV) {
@@ -549,7 +578,7 @@ class InkView(context: Context) : View(context) {
                     endNav(!tap)
                     if (tap && maxPointers == 2 && canUndo()) { undo(); performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
                     else if (tap && maxPointers == 3 && redos().isNotEmpty()) { redo(); performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
-                } else if (mode != Mode.NONE) endDraw()
+                } else if (mode != Mode.NONE) { if (e.flags and FLAG_CANCELED != 0) cancelDraw() else endDraw() }
                 mode = Mode.NONE; invalidate()
             }
             MotionEvent.ACTION_CANCEL -> { if (mode == Mode.NAV) endNav(false) else cancelDraw(); mode = Mode.NONE }
@@ -568,6 +597,7 @@ class InkView(context: Context) : View(context) {
         when (t) {
             Tool.PEN, Tool.HIGHLIGHTER -> {
                 clearSelection(); mode = Mode.DRAW; curHl = t == Tool.HIGHLIGHTER; curStyle = if (curHl) 6 else penStyle; curN = 0; snapped = false; shapeLocked = false
+                live.reset(); tiltSum = 0f; tiltN = 0; snapClosed = false; predN = 0
                 shaping = (shape > 0 && !curHl) || (curHl && hlStraight); if (shaping) { snapped = true; sx0 = x; sy0 = y }
                 euroX.reset(); euroY.reset(); euroX.filter(x, 0.004f); euroY.filter(y, 0.004f); euroT = e.eventTime
                 rawX = x; rawY = y; rawP = pressure(e.getPressure(i)); add(x, y, rawP); sigX = sx; sigY = sy; postSnap(); onInking(true)
@@ -596,6 +626,9 @@ class InkView(context: Context) : View(context) {
         val i = e.findPointerIndex(pid); if (i < 0) return
         for (h in 0 until e.historySize) point(e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalPressure(i, h), e.getHistoricalEventTime(h))
         point(e.getX(i), e.getY(i), e.getPressure(i), e.eventTime)
+        if (isStylus && mode == Mode.DRAW) {
+            // inclinación: 0 = lápiz vertical. Al escribir normal se lleva a ~35-50°, así que solo cuenta cuando se tumba de verdad (sombrear)
+            val tl = e.getAxisValue(MotionEvent.AXIS_TILT, i); tiltSum += ((tl - 0.95f) / 0.4f).coerceIn(0f, 1f); tiltN++ }
         predN = 0
         if (mode == Mode.DRAW && !snapped && curN >= 3) predictor?.predict()?.let { pe ->
             val pi = pe.findPointerIndex(pid).coerceAtLeast(0)
@@ -666,8 +699,17 @@ class InkView(context: Context) : View(context) {
             val s0 = if (curN >= 3 && cur[curN - 3] == ax && cur[curN - 2] == ay) 1 else 0
             for (k in s0..n) { val t = k.toFloat() / n; add(ax + (bx - ax) * t, ay + (by - ay) * t, 0.5f) } }
         fun poly(vararg q: Float) { var i = 0; while (i + 3 < q.size) { seg(q[i], q[i + 1], q[i + 2], q[i + 3]); i += 2 } }
+        val kind = if (curHl) 1 else shape
+        var x1 = x1; var y1 = y1
+        if (shapeSnap && kind <= 2) { val e = Shapes.snapAngle(x0, y0, x1, y1); x1 = e[0]; y1 = e[1] }
+        else if (shapeSnap) { val w = kotlin.math.abs(x1 - x0); val h = kotlin.math.abs(y1 - y0); val m = maxOf(w, h)
+            if (m > 12f && kotlin.math.abs(w - h) < 0.07f * m) { val sd = (w + h) / 2; x1 = x0 + sd * Math.signum(x1 - x0); y1 = y0 + sd * Math.signum(y1 - y0) } }
+        fun xy(a: FloatArray) { var i = 0; while (i + 1 < a.size) { add(a[i], a[i + 1], 0.5f); i += 2 } }
         val l = minOf(x0, x1); val r = maxOf(x0, x1); val t = minOf(y0, y1); val b = maxOf(y0, y1); val cx = (l + r) / 2; val cy = (t + b) / 2
-        when (if (curHl) 1 else shape) {
+        when (kind) {
+            7 -> xy(Shapes.regular(5, l, t, r, b))
+            8 -> xy(Shapes.regular(6, l, t, r, b))
+            9 -> xy(Shapes.star(l, t, r, b))
             2 -> { seg(x0, y0, x1, y1); val a = kotlin.math.atan2(y1 - y0, x1 - x0); val h = (hypot(x1 - x0, y1 - y0) * 0.18f).coerceIn(10f, 46f)
                 val ax = x1 - h * kotlin.math.cos(a - 0.45f); val ay = y1 - h * kotlin.math.sin(a - 0.45f); val bx = x1 - h * kotlin.math.cos(a + 0.45f); val by = y1 - h * kotlin.math.sin(a + 0.45f)
                 seg(x1, y1, ax, ay); seg(ax, ay, x1, y1); seg(x1, y1, bx, by) }
@@ -678,7 +720,8 @@ class InkView(context: Context) : View(context) {
             else -> seg(x0, y0, x1, y1)
         }
     }
-    private fun line(x1: Float, y1: Float) {
+    private fun line(ex1: Float, ey1: Float) {
+        val e = if (shapeSnap) Shapes.snapAngle(sx0, sy0, ex1, ey1) else floatArrayOf(ex1, ey1); val x1 = e[0]; val y1 = e[1]
         var avg = 0f; var k = 0; var i = 2; while (i < curN) { avg += cur[i]; k++; i += 3 }
         val p = if (k > 0) (avg / k) else 0.5f
         val steps = (hypot(x1 - sx0, y1 - sy0) / 4f).toInt().coerceIn(1, 500)
@@ -700,7 +743,7 @@ class InkView(context: Context) : View(context) {
                 p.strokes.removeAt(idx); if (!pieces.remove(s)) erased += idx to s
                 var k = 0
                 while (k < keep.size) { if (!keep[k]) { k++; continue }; val st = k; while (k < keep.size && keep[k]) k++
-                    if (k - st >= 2) { val np = Stroke(System.nanoTime() + k, s.color, s.width, s.hl, a.copyOfRange(st * 3, k * 3), s.t, s.style); p.strokes.add(np); pieces += np } }
+                    if (k - st >= 2) { val np = s.copy(System.nanoTime() + k, a.copyOfRange(st * 3, k * 3)).also { it.fill = 0 }; p.strokes.add(np); pieces += np } }
                 hit = true; dirty.union(b); continue
             }
             if (dist2(s, x, y) <= lim) { p.strokes.removeAt(idx); erased += idx to s; hit = true; dirty.union(b) }
@@ -716,15 +759,17 @@ class InkView(context: Context) : View(context) {
             Mode.DRAW -> if (curN >= 3 && !(curStyle == 11 && (curN <= 3 || (!tapeFree && hypot(cur[curN - 3] - cur[0], cur[curN - 2] - cur[1]) * scale < dp(6f))))) {
                 // el estabilizador va un poco por detrás: el trazo termina donde de verdad se levantó el lápiz
                 if (!snapped && curStyle != 11 && hypot(rawX - cur[curN - 3], rawY - cur[curN - 2]) * scale > 1f) add(rawX, rawY, minOf(rawP, cur[curN - 1]))
-                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else penWidth, curHl, if (curStyle == 11 && !tapeFree) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle)
+                val s = Stroke(if (curStyle == 11) (System.nanoTime() and 0x0FFFFFFFFFFFFFFFL) or (tapePattern.toLong() shl 60) else System.nanoTime(), if (curHl) hlColor(color) else color, if (curHl) hlWidth else if (curStyle == 11) (if (tapeMode == 2) rectH else tapeWidth) else penWidth, curHl, if (curStyle == 11 && !tapeFree) floatArrayOf(cur[0], cur[1], 0.5f, cur[curN - 3], cur[curN - 2], 0.5f) else cur.copyOf(curN), System.currentTimeMillis(), curStyle,
+                    fill = if (!curHl && curStyle != 11 && shapeFill != 0 && ((shaping && shape >= 3) || (shapeLocked && snapClosed && shape > 0))) shapeFill else 0, tilt = if (snapped || shaping) 0f else curTilt())
                 p.strokes.add(s); push(Op.Add(s))
                 Ink.darkPaper = Ink.isDark(p.paper)
+                synchronized(Ink) {
                 pcache[p.id]?.takeIf { it.valid }?.let { val cc = Canvas(it.bmp); cc.scale(it.res, it.res); Ink.drawStroke(cc, s) }
-                if (vpOk()) { val cc = Canvas(vp!!); cc.concat(matrix); cc.translate(0f, pageOy); cc.clipRect(0f, 0f, Ink.PAGE_W, Ink.PAGE_H); Ink.drawStroke(cc, s) } else vpValid = false
+                if (vpOk()) { val cc = Canvas(vp!!); cc.concat(matrix); cc.translate(0f, pageOy); cc.clipRect(0f, 0f, Ink.PAGE_W, Ink.PAGE_H); Ink.drawStroke(cc, s) } else vpValid = false }
                 if (p === pages.lastOrNull()) onNeedPage()
                 curN = 0; onChange()
             }
-            Mode.ERASE -> { ex = -1f; if (erased.isNotEmpty() || pieces.isNotEmpty()) { push(if (eraserPixel) Op.Replace(ArrayList(erased), ArrayList(pieces)) else Op.Remove(ArrayList(erased))); erased.clear(); pieces.clear(); if (tool == Tool.ERASER) { if (isAttachedToWindow) post { onErased() } else onErased() }; onChange() } }
+            Mode.ERASE -> { ex = -1f; if (commitErase() && tool == Tool.ERASER) { if (isAttachedToWindow) post { onErased() } else onErased() } }
             Mode.LASER -> postInvalidateOnAnimation()
             Mode.LASSO -> {
                 lasso.close()
@@ -754,24 +799,31 @@ class InkView(context: Context) : View(context) {
             Mode.MOVE_SEL -> if (rotating) {
                 rotating = false
                 if (kotlin.math.abs(selA) > 0.5f) {
-                    val op = Op.Rotate(ArrayList(sel), ArrayList(selIt), selBounds.centerX(), selBounds.centerY(), selA); apply(op); undos().addLast(op.also { it.pg = page }); redos().clear()
+                    val op = Op.Rotate(ArrayList(sel), ArrayList(selIt), selBounds.centerX(), selBounds.centerY(), selA); apply(op); push(op)
                     selBounds.setEmpty(); sel.forEach { selBounds.union(it.bounds) }; selIt.forEach { selBounds.union(it.bounds()) }; notifyState(); onChange()
                 }
                 selA = 0f
             } else if (resizing) {
                 resizing = false
                 if (kotlin.math.abs(selF - 1f) > 0.01f) {
-                    val op = Op.Scale(ArrayList(sel), ArrayList(selIt), selBounds.left, selBounds.top, selF); apply(op); undos().addLast(op.also { it.pg = page }); redos().clear()
+                    val op = Op.Scale(ArrayList(sel), ArrayList(selIt), selBounds.left, selBounds.top, selF); apply(op); push(op)
                     selBounds.set(selBounds.left, selBounds.top, selBounds.left + selBounds.width() * selF, selBounds.top + selBounds.height() * selF); notifyState(); onChange()
                 }
                 selF = 1f
             } else if (selDx != 0f || selDy != 0f) {
-                val op = Op.Move(ArrayList(sel), ArrayList(selIt), selDx, selDy); apply(op); undos().addLast(op); redos().clear()
+                val op = Op.Move(ArrayList(sel), ArrayList(selIt), selDx, selDy); apply(op); push(op)
                 selBounds.offset(selDx, selDy); selDx = 0f; selDy = 0f; notifyState(); onChange()
             }
             else -> {}
         }
         invalidate()
+    }
+
+    /** Cierra el borrado en curso como un solo paso de deshacer (también si el gesto se cancela a medias). */
+    private fun commitErase(): Boolean {
+        if (erased.isEmpty() && pieces.isEmpty()) return false
+        push(if (pieces.isNotEmpty() || eraserPixel) Op.Replace(ArrayList(erased), ArrayList(pieces)) else Op.Remove(ArrayList(erased)))
+        erased.clear(); pieces.clear(); onChange(); return true
     }
 
     private fun hitStroke(x: Float, y: Float): Stroke? {
@@ -813,8 +865,8 @@ class InkView(context: Context) : View(context) {
 
     private fun cancelDraw() {
         removeCallbacks(holdToErase); removeCallbacks(snap); onInking(false)
-        if (mode == Mode.ERASE && erased.isNotEmpty()) { push(Op.Remove(ArrayList(erased))); erased.clear(); onChange() }
-        curN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; rotating = false; selA = 0f; ex = -1f; invalidate()
+        if (mode == Mode.ERASE) commitErase()
+        curN = 0; predN = 0; lasso.reset(); selDx = 0f; selDy = 0f; selF = 1f; resizing = false; rotating = false; selA = 0f; ex = -1f; invalidate()
     }
 
     // ---------- hover / botones del lápiz ----------
@@ -874,5 +926,7 @@ class InkView(context: Context) : View(context) {
         mode = Mode.NONE; postInvalidateOnAnimation()
     }
 
-    companion object { const val DESK = 0xFFE9E5DC.toInt() }
+    companion object { const val DESK = 0xFFE9E5DC.toInt()
+        /** MotionEvent.FLAG_CANCELED (API 33). */
+        private const val FLAG_CANCELED = 0x20 }
 }

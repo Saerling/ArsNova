@@ -93,6 +93,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var grouped by remember { mutableStateOf(prefs.getBoolean("grouped", false)) }
     var barArt by remember { mutableStateOf(prefs.getBoolean("barArt", true)) }
     var sync by remember { mutableIntStateOf(0) }          // sube cuando un panel cambia una preferencia que el lienzo debe releer
+    var shapeFill by remember { mutableStateOf(prefs.getBoolean("shapeFill", false)) }
     var shapeTool by remember { mutableIntStateOf(0) }     // forma a dibujar con el lápiz (0 = escritura normal)
     var wheelAll by remember { mutableStateOf(prefs.getBoolean("wheelAll", false)) }     // el dial ofrece todos los tipos de lápiz, no solo los de la barra
     var wheelPen by remember { mutableIntStateOf(0) }      // lápiz que cambia de tipo al elegir en el dial uno que no está en la barra
@@ -210,12 +211,23 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
         view.eraseOnly = prefs.getInt("eraseOnly", 0) + 0 * syncN; view.tapeAxis = prefs.getBoolean("tapeAxis", false); view.laserMs = prefs.getFloat("laserSecs", 0.7f) * 1000f
         view.lassoRect = prefs.getBoolean("lassoRect", false); view.lassoMask = prefs.getInt("lassoMask", 15)
         view.shape = if (slot.tool == Tool.PEN && !textTool) shapeTool else 0
+        view.shapeFill = if (shapeFill) (color and 0x00FFFFFF) or 0x40000000 else 0; view.shapeSnap = prefs.getBoolean("shapeSnap", true)
         view.hlStraight = slot.tool == Tool.HIGHLIGHTER && slot.mode == 1
         view.onErased = { if (prefs.getBoolean("eraseBack", false) && slot.tool == Tool.ERASER) { active = lastPen.coerceIn(0, slots.size - 1); prefs.edit().putInt("slot", active).apply() } }
         view.penStyle = slot.style; view.stabilize = if (beautify) maxOf(slot.stab, 0.4f) else slot.stab; view.shapesOn = shapesOn; view.stylusOnly = stylusOnly
         view.tapGestures = prefs.getBoolean("tapGestures", true); view.holdErase = prefs.getBoolean("holdErase", true); view.zoomLock = zoomLock; view.onZoom = { zoom = it }; view.pressCurve = when (prefs.getInt("press", 1)) { 0 -> 0.7f; 2 -> 1.45f; else -> 1f }
     }
     LaunchedEffect(dirty) { if (dirty > 0) { delay(1200); save() } }
+    // Al pasar a segundo plano se guarda ya (sin esperar la pausa de 1,2 s): si el sistema mata el proceso no se pierde lo último escrito.
+    val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var savedAt by remember { mutableIntStateOf(0) }
+    DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, ev -> if (ev == androidx.lifecycle.Lifecycle.Event.ON_PAUSE && dirty != savedAt) { savedAt = dirty; save(false) } }
+        owner.lifecycle.addObserver(obs); onDispose { owner.lifecycle.removeObserver(obs) } }
+    DisposableEffect(repo) {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        repo.onSaveError = { e -> main.post { android.widget.Toast.makeText(ctx, "No se pudo guardar: ${e.message ?: e.javaClass.simpleName}", android.widget.Toast.LENGTH_LONG).show() } }
+        onDispose { repo.onSaveError = null } }
     DisposableEffect(Unit) {
         val keyHandler: (android.view.KeyEvent) -> Boolean = { e ->
             val c = e.keyCode
@@ -362,7 +374,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                         else if (slot.tool == Tool.PEN || slot.tool == Tool.HIGHLIGHTER) { updSlot(slot.copy(color = c)); if (hasSel) view.recolorSelection(c) } else setColor(c)
                     }, { c -> swatches = (swatches.drop(1) + c); Slots.saveSwatches(prefs, swatches) }) { picker = null }
                 }
-                AnimatedVisibility(shapeTool > 0 && slot.tool == Tool.PEN && !textTool && !collapsed && !showSettings && picker == null) { ShapeStrip(shapeTool) { shapeTool = it } }
+                AnimatedVisibility(shapeTool > 0 && slot.tool == Tool.PEN && !textTool && !collapsed && !showSettings && picker == null) { ShapeStrip(shapeTool, shapeFill, { shapeFill = it; prefs.edit().putBoolean("shapeFill", it).apply() }) { shapeTool = it } }
                 AnimatedVisibility(showSettings && !collapsed,
                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f), 0.85f, androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f))) {
@@ -519,7 +531,10 @@ private fun dockPad(d: Int, top: androidx.compose.ui.unit.Dp, two: Boolean = fal
 
 private fun Template.label() = when (this) { Template.BLANK -> "en blanco"; Template.LINED -> "rayado"; Template.GRID -> "cuadrícula"; Template.DOTS -> "puntos"; else -> "líneas y cuadrícula" }
 
-private fun exportPdf(ctx: Context, nb: Notebook) {
+private fun exportPdf(ctx: Context, nb: Notebook) = runCatching { exportPdfOrThrow(ctx, nb) }.onFailure {
+    android.widget.Toast.makeText(ctx, "No se pudo exportar el PDF: ${it.message ?: it.javaClass.simpleName}", android.widget.Toast.LENGTH_LONG).show() }
+
+private fun exportPdfOrThrow(ctx: Context, nb: Notebook) {
     val doc = PdfDocument(); val s = 595f / InkR.PAGE_W
     nb.pages.forEachIndexed { i, p ->
         val pg = doc.startPage(PdfDocument.PageInfo.Builder(595, (InkR.PAGE_H * s).toInt(), i + 1).create())

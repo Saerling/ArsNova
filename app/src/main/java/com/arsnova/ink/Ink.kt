@@ -33,10 +33,19 @@ object Ink {
     private val white = Paint().apply { color = Color.WHITE }
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     var bgDir: java.io.File? = null
-    private val bgCache = android.util.LruCache<String, Bitmap>(8)
+    /**
+     * Fondos (páginas de PDF, imágenes) en memoria, limitados por tamaño y no por cantidad: ocho páginas de PDF a 2106 px
+     * son ~200 MB y cerraban la app con cuadernos importados largos.
+     */
+    private val bgCache = object : android.util.LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 6).coerceIn(24L shl 20, 160L shl 20).toInt()) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
     private val dst = RectF()
-    fun bg(name: String): Bitmap? = bgCache.get(name)
-        ?: BitmapFactory.decodeFile(java.io.File(bgDir, name).path)?.also { bgCache.put(name, it) }
+    fun bg(name: String): Bitmap? = bgCache.get(name) ?: decode(name)?.also { bgCache.put(name, it) }
+    /** Si no hay memoria para la imagen entera se suelta la caché y, si aún no cabe, se abre a la mitad de resolución en vez de cerrar la app. */
+    private fun decode(name: String): Bitmap? { val f = java.io.File(bgDir, name).path
+        return try { BitmapFactory.decodeFile(f) } catch (e: OutOfMemoryError) { bgCache.evictAll()
+            try { BitmapFactory.decodeFile(f, BitmapFactory.Options().apply { inSampleSize = 2 }) } catch (e: OutOfMemoryError) { null } } }
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFDCD6CB.toInt(); strokeWidth = 1.5f }
 
     private val grain: BitmapShader by lazy {
@@ -87,16 +96,49 @@ object Ink {
     /** El patrón de la cinta se guarda en los bits altos del id (sin cambiar el formato de archivo). */
     private fun tapeStyleOf(s: Stroke) = ((s.id ushr 60) and 7).toInt()
 
-    fun drawStroke(c: Canvas, s: Stroke, faded: Boolean = false) {
-        val st = styleOf(s)
-        val path = s.path ?: buildPath(s.pts, s.pts.size, s.width, st).also { s.path = it }
-        hidOf = s.hid; tapePatternOf = if (st == 11) tapeStyleOf(s) else 0
-        val col = if (faded) (s.color and 0x00FFFFFF) or (((s.color ushr 24) * 0.2f).toInt() shl 24) else s.color
-        draw(c, path, s.pts, s.pts.size, s.width, st, col)
+    /** Ancho efectivo: el lápiz y el crayón inclinados pintan con el costado de la mina (más ancho). */
+    fun tiltWidth(width: Float, style: Int, tilt: Float) = if ((style == 2 || style == 12) && tilt > 0f) width * (1f + 1.6f * tilt) else width
+    /** …y más claro. */
+    fun tiltColor(color: Int, style: Int, tilt: Float) = if ((style == 2 || style == 12) && tilt > 0f) (color and 0x00FFFFFF) or (((color ushr 24) * (1f - 0.5f * tilt)).toInt() shl 24) else color
+
+    private val shapeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    /** Relleno de una forma cerrada: el polígono de sus puntos, bajo el contorno. */
+    private fun drawFill(c: Canvas, s: Stroke, faded: Boolean) {
+        if (s.fill == 0 || s.pts.size < 9) return
+        val p = s.fillPath ?: Path().also { p -> p.moveTo(s.pts[0], s.pts[1]); var i = 3; while (i + 1 < s.pts.size) { p.lineTo(s.pts[i], s.pts[i + 1]); i += 3 }; p.close(); s.fillPath = p }
+        shapeFill.color = if (faded) (s.fill and 0x00FFFFFF) or (((s.fill ushr 24) * 0.2f).toInt() shl 24) else s.fill; c.drawPath(p, shapeFill)
     }
 
-    fun drawLive(c: Canvas, pts: FloatArray, n: Int, width: Float, style: Int, color: Int, tapePattern: Int = 0) =
-        hidOf.let { hidOf = false; tapePatternOf = tapePattern }.let { draw(c, buildPath(pts, n, width, style), pts, n, width, style, color) }
+    fun drawStroke(c: Canvas, s: Stroke, faded: Boolean = false) {
+        val st = styleOf(s); val w = tiltWidth(s.width, st, s.tilt)
+        val path = s.path ?: buildPath(s.pts, s.pts.size, w, st).also { s.path = it }
+        drawFill(c, s, faded)
+        hidOf = s.hid; tapePatternOf = if (st == 11) tapeStyleOf(s) else 0
+        val base = tiltColor(s.color, st, s.tilt)
+        val col = if (faded) (base and 0x00FFFFFF) or (((base ushr 24) * 0.2f).toInt() shl 24) else base
+        draw(c, path, s.pts, s.pts.size, w, st, col)
+    }
+
+    /**
+     * Trazo en curso con la parte ya definitiva guardada: cada cuadro solo se arma la cola, así un trazo largo
+     * (sombrear, subrayar una página entera) cuesta lo mismo que uno corto. Técnica de "trazo húmedo / trazo seco".
+     */
+    class Live { internal val frozen = Path(); internal val tail = Path(); internal var node = 0; internal var rawN = 0; internal val st = IntArray(1)
+        fun reset() { frozen.rewind(); node = 0; rawN = 0 } }
+
+    fun drawLive(c: Canvas, pts: FloatArray, n: Int, width: Float, style: Int, color: Int, tapePattern: Int = 0, live: Live? = null) {
+        hidOf = false; tapePatternOf = tapePattern
+        val nib = !(style == 5 || style == 6 || style in 8..11 || style == 13)
+        if (live == null || !nib || (color ushr 24) != 255 || n < 9) { draw(c, buildPath(pts, n, width, style), pts, n, width, style, color); return }
+        if (n < live.rawN) live.reset(); live.rawN = n
+        val nd = Nib.nodes(pts, n, width, style, live.st); val last = nd.size / 3 - 1; val s = live.st[0] - 1
+        if (s < live.node) live.reset()
+        if (s - live.node >= 16) { Nib.addRange(live.frozen, nd, live.node, s, width, style); live.node = s }
+        live.tail.rewind(); Nib.addRange(live.tail, nd, live.node, last, width, style)
+        fill.color = color; fill.shader = if (style == 2) grain else if (style == 12) wax else null
+        if (live.node > 0) c.drawPath(live.frozen, fill)
+        c.drawPath(live.tail, fill); fill.shader = null
+    }
 
     private fun draw(c: Canvas, path: Path, pts: FloatArray, n: Int, width: Float, style: Int, color: Int) {
         if (n < 3) return
@@ -198,7 +240,8 @@ object Ink {
     /** Solo para la vista previa de la biblioteca de animaciones: fuerza el grano sin tocar el ajuste. */
     @Volatile var granoPrevia = false
 
-    fun drawPage(c: Canvas, p: Page) { drawPaper(c, p); p.items.forEach { drawItem(c, it) }; p.strokes.forEach { drawStroke(c, it) } }
+    /** Las brochas son compartidas: quien dibuje fuera del lienzo (miniaturas en segundo plano, exportar) pasa por aquí con el cerrojo puesto. */
+    fun drawPage(c: Canvas, p: Page) = synchronized(this) { drawPaper(c, p); p.items.toList().forEach { drawItem(c, it) }; p.strokes.toList().forEach { drawStroke(c, it) } }
 
     private val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG)
     fun drawItem(c: Canvas, it: com.arsnova.data.Item) {

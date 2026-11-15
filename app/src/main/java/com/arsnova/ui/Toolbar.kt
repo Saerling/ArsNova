@@ -41,6 +41,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** Estilos de tinta: 0 bolígrafo, 1 pluma, 2 lápiz, 3 pincel, 4 monolínea, 5 rotulador, 6 resaltador. */
+/** Los índices 8 (Neón) y 10 (Puntillismo) ya no se ofrecen: solo se conservan para dibujar notas antiguas. */
 val StyleNames = listOf("Bolígrafo", "Pluma estilográfica", "Lápiz", "Pincel", "Monolínea", "Rotulador", "Resaltador", "Caligrafía", "Neón", "Acuarela", "Puntillismo", "Cinta", "Crayón", "Línea discontinua")
 
 @Serializable
@@ -57,7 +58,8 @@ object Slots {
     val penOrder = listOf(0, 1, 2, 12, 5, 3, 7, 4, 13, 9)
     fun fresh(t: Tool, style: Int = 0) = when (t) { Tool.HIGHLIGHTER -> defaults[3]; Tool.ERASER -> defaults[4]; Tool.LASSO -> defaults[5]; Tool.TAPE -> defaults[6]; Tool.LASER -> defaults[7]
         else -> Slot(Tool.PEN, style, 0xFF1D1B18.toInt(), if (style == 3) 9f else 4f) }
-    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots2", null)!!) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: defaults
+    fun load(p: SharedPreferences): List<Slot> = runCatching { json.decodeFromString<List<Slot>>(p.getString("slots2", null)!!) }.getOrNull()?.takeIf { it.isNotEmpty() }
+        ?.map { if (it.tool == Tool.PEN && it.style !in penOrder) it.copy(style = if (it.style == 10) 2 else 5) else it } ?: defaults
     fun save(p: SharedPreferences, s: List<Slot>) = p.edit().putString("slots2", json.encodeToString(s)).apply()
     fun loadSwatches(p: SharedPreferences): List<Int> = p.getString("swatches", null)?.split(",")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 5 }
         ?: listOf(0xFF1D1B18, 0xFF2D5BD9, 0xFF34C759, 0xFFFFCC00, 0xFFFF3B30).map { it.toInt() }
@@ -380,6 +382,9 @@ fun ToolSettings(s: Slot, swatches: List<Int>, shapesOn: Boolean, prefs: SharedP
                 Stepper("Estabilización", Math.round(s.stab * 100).toFloat(), 0f..100f, 1f, "%") { onChange(s.copy(stab = it / 100f)) }
                 Stepper("Opacidad", Math.round((s.color ushr 24) / 2.55f).toFloat(), 10f..100f, 1f, "%") { onChange(s.copy(color = (s.color and 0x00FFFFFF) or ((it * 2.55f).toInt().coerceIn(20, 255) shl 24))) }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) { Text("Enderezar líneas y figuras", Modifier.weight(1f), color = cs.onSurface); Switch(shapesOn, onShapes) }
+                var snapA by remember { mutableStateOf(prefs.getBoolean("shapeSnap", true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("Regla: ángulos de 15° y figuras regulares", Modifier.weight(1f), color = cs.onSurface)
+                    Switch(snapA, { snapA = it; prefs.edit().putBoolean("shapeSnap", it).apply(); onChange(s) }) }
                 val quick = (swatches + listOf(0xFFFFFFFF, 0xFF8E8E93, 0xFFAF52DE, 0xFF5AC8FA).map { it.toInt() }).distinct().take(8)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 10.dp)) {
                     quick.forEach { c -> val on = (c or 0xFF000000.toInt()) == (s.color or 0xFF000000.toInt())

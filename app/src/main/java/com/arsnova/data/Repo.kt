@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -15,9 +17,24 @@ class Repo(private val ctx: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
     private val indexFile = File(dir, "index.json")
 
+    /** Aviso (en el hilo de guardado) cuando un guardado falla: sin esto el error se perdía en silencio. */
+    @Volatile var onSaveError: ((Throwable) -> Unit)? = null
+
     @Synchronized fun list(): List<NotebookMeta> =
-        runCatching { json.decodeFromString<List<NotebookMeta>>(indexFile.readText()) }.getOrDefault(emptyList())
+        (runCatching { json.decodeFromString<List<NotebookMeta>>(indexFile.readText()) }.getOrNull() ?: rebuildIndex())
             .sortedByDescending { it.updated }
+
+    /**
+     * Índice perdido o dañado: se reconstruye leyendo los cuadernos que hay en disco. Antes se tomaba como
+     * "biblioteca vacía" y el siguiente guardado dejaba el índice con un solo cuaderno (los demás desaparecían de la lista).
+     */
+    private fun rebuildIndex(): List<NotebookMeta> {
+        val ids = dir.listFiles()?.filter { it.isFile && (it.name.endsWith(".json") || it.name.endsWith(".bak")) && !it.name.startsWith("index") }
+            ?.map { it.name.substringBeforeLast('.') }?.distinct() ?: return emptyList()
+        val l = ids.mapNotNull { id -> runCatching { meta(load(id)) }.getOrNull() }
+        if (l.isNotEmpty()) runCatching { saveIndex(l) }
+        return l
+    }
 
     fun thumb(id: String) = File(dir, "$id.png")
 
@@ -50,13 +67,16 @@ class Repo(private val ctx: Context) {
     }
 
     /** Si el archivo principal está dañado, se abre la copia del guardado anterior. */
-    fun load(id: String): Notebook = runCatching { json.decodeFromString<Notebook>(File(dir, "$id.json").readText()) }
-        .getOrElse { json.decodeFromString(File(dir, "$id.bak").readText()) }
+    fun load(id: String): Notebook = runCatching { read(File(dir, "$id.json")) }.getOrElse { read(File(dir, "$id.bak")) }
+
+    /** Lee por flujo (sin cargar el archivo entero como texto): un cuaderno grande ocupa la mitad de memoria al abrir. */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    private fun read(f: File): Notebook = f.inputStream().buffered(1 shl 16).use { json.decodeFromStream<Notebook>(it) }
 
     fun create(title: String, cover: Int, t: Template, pattern: Int = 0, folder: String = "", paper: Int = -1, spacing: Float = 0f): String {
         val nb = Notebook(UUID.randomUUID().toString(), title, cover, t, System.currentTimeMillis(),
             mutableListOf(Page(System.nanoTime(), t, paper = paper, spacing = spacing)), pattern = pattern, folder = folder)
-        write(nb.id, json.encodeToString(nb), meta(nb), null)
+        write(nb, null)
         return nb.id
     }
 
@@ -65,15 +85,18 @@ class Repo(private val ctx: Context) {
         nb.updated = System.currentTimeMillis()
         val snap = Notebook(nb.id, nb.title, nb.cover, nb.template, nb.updated,
             nb.pages.mapTo(ArrayList()) { Page(it.id, it.template, ArrayList(it.strokes), it.bg, ArrayList(it.items), it.ocr, it.paper, it.spacing, it.lines, it.tex) }, ArrayList(nb.recs), nb.pattern, nb.folder)
-        io.execute { runCatching { write(snap.id, json.encodeToString(snap), meta(snap), thumb) } }
+        io.execute { try { write(snap, thumb) } catch (e: Throwable) { onSaveError?.invoke(e) } }
     }
 
+    /** Espera a que terminen los guardados pendientes (al salir de la app o en pruebas). */
+    fun flush(ms: Long = 4000) { runCatching { io.submit {}.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS) } }
+
     fun rename(id: String, title: String) = io.execute {
-        runCatching { val nb = load(id); nb.title = title; write(id, json.encodeToString(nb), meta(nb), null) }
+        runCatching { val nb = load(id); nb.title = title; write(nb, null) }
     }
 
     fun setFolder(id: String, folder: String) = io.execute {
-        runCatching { val nb = load(id); nb.folder = folder; write(id, json.encodeToString(nb), meta(nb), null) }
+        runCatching { val nb = load(id); nb.folder = folder; write(nb, null) }
     }
 
     fun delete(id: String) = io.execute {
@@ -89,8 +112,9 @@ class Repo(private val ctx: Context) {
         val id = UUID.randomUUID().toString(); val pages = mutableListOf<Page>()
         ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
             android.graphics.pdf.PdfRenderer(fd).use { r ->
+                if (r.pageCount == 0) error("El PDF no tiene páginas")
                 for (i in 0 until r.pageCount) r.openPage(i).use { pg ->
-                    val w = 2106; val h = (w.toFloat() * pg.height / pg.width).toInt()
+                    val w = 2106; val h = (w.toFloat() * pg.height / pg.width).toInt().coerceIn(1, 6000)
                     val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); b.eraseColor(android.graphics.Color.WHITE)
                     pg.render(b, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     val name = "$id-$i.jpg"
@@ -100,22 +124,39 @@ class Repo(private val ctx: Context) {
             }
         }
         val nb = Notebook(id, title, cover, Template.BLANK, System.currentTimeMillis(), pages)
-        write(id, json.encodeToString(nb), meta(nb), com.arsnova.ink.Ink.render(pages[0], 0.25f))
+        write(nb, com.arsnova.ink.Ink.render(pages[0], 0.25f))
         return id
     }
 
     private fun meta(nb: Notebook) = NotebookMeta(nb.id, nb.title, nb.cover, nb.updated, nb.pages.size,
         nb.pages.joinToString(" ") { p -> p.ocr + " " + p.items.joinToString(" ") { it.text } }.take(6000), nb.pattern, nb.folder)
 
-    @Synchronized private fun write(id: String, s: String, m: NotebookMeta, thumb: Bitmap?) {
-        val tmp = File(dir, "$id.tmp"); tmp.writeText(s)
-        val main = File(dir, "$id.json"); if (main.length() > 0) main.renameTo(File(dir, "$id.bak"))   // el guardado anterior queda de respaldo
-        tmp.renameTo(main)
-        thumb?.let { b -> thumb(id).outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 90, it) } }
-        saveIndex(list().filter { it.id != id } + m)
+    /**
+     * Guardado atómico: se escribe a un temporal, se fuerza a disco (fsync) y solo entonces sustituye al archivo
+     * principal; el guardado anterior queda como .bak. Si el proceso muere a mitad, queda el principal o el respaldo, nunca un archivo a medias.
+     */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @Synchronized private fun write(nb: Notebook, thumb: Bitmap?) {
+        val id = nb.id; val tmp = File(dir, "$id.tmp")
+        java.io.FileOutputStream(tmp).use { fo -> val bo = fo.buffered(1 shl 16); json.encodeToStream(nb, bo); bo.flush(); fo.fd.sync() }
+        if (tmp.length() < 2L) { tmp.delete(); error("No se pudo escribir el cuaderno") }
+        val main = File(dir, "$id.json"); val bak = File(dir, "$id.bak")
+        // el respaldo solo se pisa con un archivo que se puede leer: un principal dañado no borra el último respaldo bueno
+        if (main.length() > 0 && (!bak.exists() || legible(main))) main.renameTo(bak)
+        if (!tmp.renameTo(main)) { main.delete(); if (!tmp.renameTo(main)) error("No se pudo guardar el cuaderno") }
+        thumb?.let { b -> runCatching { val t = File(dir, "$id.png.tmp"); t.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 90, it) }; t.renameTo(thumb(id)) } }
+        saveIndex(list().filter { it.id != id } + meta(nb))
     }
 
+    /** Comprobación barata de que un cuaderno guardado está entero (termina cerrando el objeto JSON). */
+    private fun legible(f: File): Boolean = runCatching {
+        java.io.RandomAccessFile(f, "r").use { r -> if (r.length() < 2) return false; r.seek(r.length() - 1); var c = r.read(); var back = 2L
+            while ((c == 10 || c == 13 || c == 32) && back <= r.length()) { r.seek(r.length() - back); c = r.read(); back++ }; c == '}'.code }
+    }.getOrDefault(false)
+
     private fun saveIndex(l: List<NotebookMeta>) {
-        val tmp = File(dir, "index.tmp"); tmp.writeText(json.encodeToString(l)); tmp.renameTo(indexFile)
+        val tmp = File(dir, "index.tmp")
+        java.io.FileOutputStream(tmp).use { fo -> fo.write(json.encodeToString(l).toByteArray()); fo.fd.sync() }
+        if (!tmp.renameTo(indexFile)) { indexFile.delete(); tmp.renameTo(indexFile) }
     }
 }

@@ -240,10 +240,10 @@ fun BarEditor(slots: List<Slot>, grouped: Boolean, art: Boolean, onSlots: (List<
 
 /** Tira de formas: elige una y arrástrala en la hoja con el lápiz actual; ✕ vuelve a la escritura normal. */
 @Composable
-fun ShapeStrip(sel: Int, onSel: (Int) -> Unit) {
+fun ShapeStrip(sel: Int, fill: Boolean = false, onFill: (Boolean) -> Unit = {}, onSel: (Int) -> Unit) {
     Surface(shape = squircle(22), color = Ars.Panel, shadowElevation = 12.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Ars.GlassBorder), modifier = Modifier.padding(vertical = 8.dp)) {
         Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf("Línea", "Flecha", "Rectángulo", "Elipse", "Triángulo", "Rombo").forEachIndexed { k, name -> val i = k + 1; val on = sel == i; val fg = if (on) Ars.Bg else Ars.Text
+            listOf("Línea", "Flecha", "Rectángulo", "Elipse", "Triángulo", "Rombo", "Pentágono", "Hexágono", "Estrella").forEachIndexed { k, name -> val i = k + 1; val on = sel == i; val fg = if (on) Ars.Bg else Ars.Text
                 Box(Modifier.size(42.dp).clip(squircle(13)).background(if (on) Ars.Text else Color.Transparent).semantics { contentDescription = name }.clickable { onSel(i) }, contentAlignment = Alignment.Center) {
                     androidx.compose.foundation.Canvas(Modifier.size(22.dp)) { val w = size.width; val h = size.height; val sw = 1.8.dp.toPx()
                         val st = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
@@ -254,10 +254,18 @@ fun ShapeStrip(sel: Int, onSel: (Int) -> Unit) {
                             3 -> drawRect(fg, androidx.compose.ui.geometry.Offset(1f, h * 0.18f), androidx.compose.ui.geometry.Size(w - 2f, h * 0.64f), style = st)
                             4 -> drawOval(fg, androidx.compose.ui.geometry.Offset(1f, h * 0.15f), androidx.compose.ui.geometry.Size(w - 2f, h * 0.7f), style = st)
                             5 -> drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 2f); lineTo(w - 1f, h - 2f); lineTo(1f, h - 2f); close() }, fg, style = st)
-                            else -> drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 1f); lineTo(w - 1f, h / 2); lineTo(w / 2, h - 1f); lineTo(1f, h / 2); close() }, fg, style = st)
+                            6 -> drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 1f); lineTo(w - 1f, h / 2); lineTo(w / 2, h - 1f); lineTo(1f, h / 2); close() }, fg, style = st)
+                            else -> drawPath(androidx.compose.ui.graphics.Path().apply { val n = if (i == 9) 10 else i - 2
+                                for (q in 0..n) { val a = -Math.PI / 2 + 2 * Math.PI * q / n; val k2 = if (i == 9 && q % 2 == 1) 0.42f else 1f
+                                    val px = w / 2 + (w / 2 - 1f) * k2 * Math.cos(a).toFloat(); val py = h / 2 + (h / 2 - 1f) * k2 * Math.sin(a).toFloat(); if (q == 0) moveTo(px, py) else lineTo(px, py) }; close() }, fg, style = st)
                         } } }
             }
             Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(Ars.Line))
+            // relleno de las figuras cerradas (con el color del lápiz, translúcido)
+            Box(Modifier.size(42.dp).clip(squircle(13)).background(if (fill) Ars.Text else Color.Transparent).semantics { contentDescription = "Relleno" }.clickable { onFill(!fill) }, contentAlignment = Alignment.Center) {
+                androidx.compose.foundation.Canvas(Modifier.size(20.dp)) { val c = if (fill) Ars.Bg else Ars.Text
+                    drawRoundRect(c.copy(alpha = 0.45f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
+                    drawRoundRect(c, cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.8.dp.toPx())) } }
             IconButton({ onSel(0) }) { Icon(ArsIcons.Close, "Salir de formas") }
         }
     }
