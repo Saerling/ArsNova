@@ -406,7 +406,7 @@ class InkView(context: Context) : View(context) {
         if (pc == null || (res > 0 && pc.res != res)) {
             val r = if (res > 0) res else (pc?.res ?: targetRes())
             pc?.bmp?.recycle(); pcache.remove(p.id)
-            pc = PC(newBitmap(r), r).let { PC(it.bmp, it.bmp.width / Ink.PAGE_W) }; pcache[p.id] = pc
+            pc = newBitmap(r); pcache[p.id] = pc
         }
         if (!pc.valid) { val cc = Canvas(pc.bmp); cc.scale(pc.res, pc.res); paintPage(cc, p, null); pc.valid = true }
         return pc.bmp
