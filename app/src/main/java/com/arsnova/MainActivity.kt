@@ -45,6 +45,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 com.arsnova.ui.FxCapasArsNova()
+                // Apertura de puntos: solo al abrir la app (no al girar) y nunca con las animaciones del sistema quitadas.
+                var apertura by rememberSaveable { mutableStateOf(android.provider.Settings.Global.getFloat(contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f) }
+                if (apertura) {
+                    val tipo = remember { runCatching { androidx.core.content.res.ResourcesCompat.getFont(this@MainActivity, R.font.inter_bold) }.getOrNull() }
+                    com.arsnova.ui.AperturaPuntos(com.arsnova.ui.PuntosIcono, "ArsNova", tipo = tipo, fondo = androidx.compose.ui.graphics.Color(0xFF0E0E10)) { apertura = false }
+                }
             } }
         }
     }

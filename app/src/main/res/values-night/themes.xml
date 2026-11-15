@@ -1,6 +1,9 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.ArsNova" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/paper</item>
+        <!-- Pantalla de inicio del sistema (Android 12+): mismo fondo e icono que el primer fotograma de la apertura. -->
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">#0E0E10</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_fg</item>
     </style>
     <color name="paper">#0E0E10</color>
 </resources>
