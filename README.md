@@ -1,27 +1,98 @@
-# ArsNova
+<p align="center">
+  <img src="docs/icono.png" width="112" alt="ArsNova">
+</p>
 
-App de notas a mano para Android (tablet y teléfono), en la línea de Notability, Noteshelf, Goodnotes o StarNote. Kotlin + Jetpack Compose, con un motor de tinta nativo.
+<h1 align="center">ArsNova</h1>
 
-**Funciones:** biblioteca de cuadernos con miniaturas · plantillas (en blanco, rayado, cuadrícula, puntos) · bolígrafo sensible a la presión (contorno de ancho variable) · resaltador · borrador por trazo (también con el botón del lápiz) · lazo para mover, recolorear o borrar · mantener el trazo quieto lo convierte en línea recta · deshacer/rehacer · zoom y desplazamiento con dos dedos · modo "solo lápiz" con rechazo de palma · páginas múltiples · exportar a PDF.
+<p align="center">
+  <b>Notas a mano para Android, con lápices de verdad.</b><br>
+  Para tablet y teléfono, en la línea de Notability, Goodnotes, Noteshelf y StarNote.<br>
+  Tinta nativa, LaTeX y búsqueda en tu letra, sin anuncios.
+</p>
 
-**Descarga:** pestaña *Releases* (cada push a `main` compila un APK firmado).
+<p align="center">
+  <a href="https://github.com/Saerling/ArsNova/releases/latest"><img src="https://img.shields.io/github/v/release/Saerling/ArsNova?style=for-the-badge&label=versi%C3%B3n&color=0E0E10" alt="Última versión"></a>
+  <a href="https://github.com/Saerling/ArsNova/releases"><img src="https://img.shields.io/github/downloads/Saerling/ArsNova/total?style=for-the-badge&label=descargas&color=0E0E10" alt="Descargas"></a>
+  <img src="https://img.shields.io/badge/Android-8.0%2B-0E0E10?style=for-the-badge&logo=android&logoColor=white" alt="Android 8.0+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-GPL--3.0-0E0E10?style=for-the-badge" alt="GPL-3.0"></a>
+</p>
 
-**Más funciones:** baja latencia (predicción de trazo + entrada sin búfer) · vista previa del grosor al flotar el lápiz · rueda de herramientas con doble toque del lápiz (configurable, pensado para Huawei M-Pencil) · importar y anotar PDF · modo oscuro · audio ligado a los trazos (toca lo escrito y escucha ese momento) · figuras (línea, triángulo, rectángulo, círculo) al mantener el trazo · cuadros de texto e imágenes · reconocimiento de escritura en el dispositivo para buscar y convertir a texto · miniaturas de páginas · resumen y tarjetas con IA (opcional, clave propia de Claude).
+<p align="center">
+  <a href="https://github.com/Saerling/ArsNova/releases/latest"><b>⬇ Descargar el APK</b></a>
+  &nbsp;·&nbsp;
+  <a href="#instalar">Instalar con Orion Store</a>
+  &nbsp;·&nbsp;
+  <a href="#funciones">Funciones</a>
+</p>
 
-**Tinta:** cada lápiz tiene su carácter (bolígrafo, pluma, lápiz, pincel, monolínea, caligrafía de plumilla plana…) y lo que ves al escribir es lo que queda al levantar el lápiz. El lienzo se mantiene nítido con mucho zoom, la mano apoyada no estorba al lápiz, y un toque con dos dedos deshace (tres, rehace).
+<p align="center">
+  <img src="docs/capturas/library-dark.jpg" width="49%" alt="Biblioteca de cuadernos">
+  <img src="docs/capturas/editor-light.jpg" width="49%" alt="Editor con la barra de lápices">
+</p>
 
-**Fórmulas:** inserta LaTeX con vista previa en vivo (Insertar → Fórmula) o convierte tu escritura a fórmula desde la selección (necesita tu clave de API de Claude).
+---
 
-**Rueda del lápiz:** el doble toque abre un dial bajo la punta: se gira para cambiar de herramienta o de grosor, con colores, deshacer y rehacer.
+## Funciones
 
-**Barra:** estilo Apple (cada lápiz es su propio botón), editable, acoplable a los cuatro bordes y, minimizada, libre. Favoritos de lápiz, ajuste fino de grosor/estabilización/opacidad, mantener para borrar, zooms guardados y página a LaTeX.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-**Buscar y LaTeX:** lupa para buscar palabras dentro de la nota (tu letra se reconoce en el dispositivo y se resalta dónde está) y Vista LaTeX por página con cambio entre Manuscrito, Código, Vista previa y Dividida.
+### ✍️ Tinta
+Cada lápiz tiene su carácter: bolígrafo, pluma, lápiz, pincel, monolínea, caligrafía de plumilla plana y resaltador. Lo que ves al escribir es lo que queda al levantar el lápiz. Baja latencia con predicción del trazo y lienzo nítido con mucho zoom.
 
-**Seguridad de tus notas:** papelera con restaurar, y copia de seguridad de todo en un .zip (Ajustes).
+### 🎛 Rueda del lápiz
+Con un doble toque del lápiz se abre un dial bajo la punta. Lo giras para cambiar de herramienta o de grosor, y ahí también tienes colores, deshacer, rehacer y tus lápices favoritos. Está pensado para el Huawei M-Pencil.
 
-**Diseño:** estética monocroma de Mochy Music (Inter, esquinas continuas, pulsación con rebote) e iconos propios. Ver `CREDITOS.md`.
+### 🧰 Barra al estilo Apple
+Cada lápiz es su propio botón. La barra se puede editar, acoplar a los cuatro bordes y, minimizada, mover libremente. Los grosores se ajustan de uno en uno, con decimales.
 
-**Desarrollo:** `gradle testDebugUnitTest` genera imágenes de los lápices e iconos (`app/build/ink`) y capturas de las pantallas (`app/build/shots`).
+</td>
+<td width="50%" valign="top">
 
-Licencia: GPL-3.0.
+### ∑ LaTeX
+Inserta fórmulas con vista previa en vivo o convierte tu escritura a LaTeX. Cada página tiene su vista LaTeX: Manuscrito, Código, Vista previa o Dividida.
+
+### 🔎 Busca en tu letra
+Tu escritura se reconoce en el propio dispositivo: busca palabras dentro de las notas y mira dónde aparecen.
+
+### 🎙 Audio y PDF
+Graba audio ligado a los trazos (toca lo escrito y escucha ese momento), importa y anota PDF, y exporta a PDF.
+
+</td>
+</tr>
+</table>
+
+### 📄 Plantillas y papel
+En blanco, rayado, cuadrícula, puntos, Cornell, con margen, caligrafía, tareas, semanal y pentagrama. Con la biblioteca de animaciones puedes sumar **hexagonal** (para química orgánica) y **milimetrado**.
+
+### 🧠 Más
+Figuras perfectas al mantener el trazo quieto, lazo para mover, recolorear o borrar, cuadros de texto e imágenes, rechazo de palma con modo "solo lápiz", gestos con dos y tres dedos, papelera, copia de seguridad en `.zip` e IA opcional para resúmenes, en el dispositivo o con tu propia clave.
+
+### ✨ Personalización
+Estética monocroma de Mochy Music (Inter, esquinas continuas, rebote al pulsar), transparencia del vidrio y una **biblioteca de animaciones y funciones** que activas una a una, cada una con su vista previa.
+
+<p align="center">
+  <img src="docs/capturas/wheel-pens.jpg" width="32%" alt="Rueda de lápices">
+  <img src="docs/capturas/latex-pane.jpg" width="32%" alt="Vista LaTeX">
+  <img src="docs/capturas/settings-dark.jpg" width="32%" alt="Ajustes">
+</p>
+
+## Instalar
+
+- **Orion Store:** busca *ArsNova* en [Orion Store](https://github.com/RookieEnough/Orion-Store) y toca Instalar. Orion avisa de cada versión nueva.
+- **GitHub:** descarga el `.apk` de la [última versión](https://github.com/Saerling/ArsNova/releases/latest) y ábrelo.
+
+Después, ArsNova avisa sola cuando hay una versión nueva (Ajustes → Actualizaciones). Cada versión nueva se instala encima de la anterior y conserva tus cuadernos.
+
+## Compilar
+
+Cada push a `main` compila y publica un APK firmado (GitHub Actions). Para compilar en tu equipo: `gradle assembleRelease`. Con `gradle testDebugUnitTest` se generan imágenes de los lápices (`app/build/ink`) y capturas de las pantallas (`app/build/shots`).
+
+## Créditos
+
+Diseño basado en [Mochy Music](https://github.com/realidkroo/Mochy-Music) y BitChord. Detalles en [`CREDITOS.md`](CREDITOS.md).
+
+## Licencia
+
+[GPL-3.0](LICENSE).
