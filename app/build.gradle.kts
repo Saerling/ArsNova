@@ -43,7 +43,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.input:input-motionprediction:1.0.0-beta05")
+    implementation("androidx.input:input-motionprediction:1.0.1")
     implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
     implementation("com.google.mediapipe:tasks-genai:0.10.27")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
