@@ -25,7 +25,7 @@ jobs:
         with: { name: ArsNova-apk, path: "ArsNova-*.apk" }
       - uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
-        with: { tag_name: "v0.1.${{ github.run_number }}", name: "ArsNova 0.1.${{ github.run_number }}", files: "ArsNova-*.apk" }
+        with: { tag_name: "v0.2.${{ github.run_number }}", name: "ArsNova 0.2.${{ github.run_number }}", files: "ArsNova-*.apk" }
   pruebas:
     runs-on: ubuntu-latest
     steps:

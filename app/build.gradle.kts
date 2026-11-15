@@ -13,7 +13,7 @@ android {
         targetSdk = 35
         ndk { abiFilters += listOf("arm64-v8a") }
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        versionName = "0.2.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
     }
     val ks = System.getenv("KEYSTORE_PATH")
     signingConfigs {
