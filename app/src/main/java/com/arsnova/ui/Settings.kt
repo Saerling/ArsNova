@@ -38,7 +38,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
     var gestures by remember { mutableStateOf(p.getBoolean("tapGestures", true)) }
     var auto by remember { mutableStateOf(p.getBoolean("autoUpdate", true)) }
     var tpl by remember { mutableIntStateOf(p.getInt("tpl", 1)) }
-    var key by remember { mutableStateOf(p.getString("aiKey", "") ?: "") }
+    var key by remember { mutableStateOf(com.arsnova.Secreto.leer(p, "aiKey") ?: "") }
     var upd by remember { mutableStateOf<Updater.Rel?>(null) }
     var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -110,7 +110,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                     }) } }
             item {
                 Header("IA en la nube (para LaTeX y resúmenes)"); Group {
-                OutlinedTextField(key, { key = it; p.edit().putString("aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                OutlinedTextField(key, { key = it; com.arsnova.Secreto.poner(p.edit(), "aiKey", it.trim()).apply() }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     label = { Text("Clave de API de Gemini o de Claude") }, singleLine = true, supportingText = { Text("Gemini tiene nivel gratuito: crea la clave en aistudio.google.com/apikey. Se guarda solo en este dispositivo.") }) } }
             item {
                 Header("Copia de seguridad"); Group {

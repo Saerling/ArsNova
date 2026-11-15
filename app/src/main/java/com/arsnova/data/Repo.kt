@@ -29,13 +29,20 @@ class Repo(private val ctx: Context) {
 
     /** Restaura una copia: añade sus cuadernos (los que ya existan con el mismo identificador se reemplazan). Devuelve cuántos trae. */
     @Synchronized fun importZip(inp: java.io.InputStream): Int {
-        var n = 0; val incoming = ArrayList<NotebookMeta>()
+        var n = 0; var total = 0L; val incoming = ArrayList<NotebookMeta>()
         java.util.zip.ZipInputStream(inp).use { z ->
             var e = z.nextEntry
             while (e != null) {
                 val name = File(e.name).name   // solo el nombre: nada puede escribirse fuera de la carpeta
                 if (name == "index.json") incoming += runCatching { json.decodeFromString<List<NotebookMeta>>(z.readBytes().decodeToString()) }.getOrDefault(emptyList())
-                else if (!e.isDirectory && name.isNotBlank()) { File(dir, name).outputStream().use { z.copyTo(it) }; if (name.endsWith(".json")) n++ }
+                else if (!e.isDirectory && name.isNotBlank() && !name.startsWith(".") && name != "index.tmp") {
+                    // Tope de 512 MB por archivo y 4 GB por copia: un .zip manipulado no puede llenar el almacenamiento.
+                    val f = File(dir, name); var escritos = 0L
+                    f.outputStream().use { o -> val buf = ByteArray(64 * 1024); while (true) { val r = z.read(buf); if (r < 0) break; escritos += r; total += r
+                        if (escritos > 512L shl 20 || total > 4L shl 30) { o.close(); f.delete(); error("La copia es demasiado grande o está dañada") }
+                        o.write(buf, 0, r) } }
+                    if (name.endsWith(".json")) n++
+                }
                 e = z.nextEntry
             }
         }

@@ -162,7 +162,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
     var aiOut by remember { mutableStateOf<String?>(null) }
     var askKey by remember { mutableStateOf(false) }
     fun runAi() {
-        val key = prefs.getString("aiKey", null); val local = com.arsnova.data.LocalAi.ready(ctx)
+        val key = com.arsnova.Secreto.leer(prefs, "aiKey"); val local = com.arsnova.data.LocalAi.ready(ctx)
         if (!local && key.isNullOrBlank()) { askKey = true; return }
         aiOut = "…"
         scope.launch {
@@ -309,7 +309,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 var k by remember { mutableStateOf("") }
                 AlertDialog({ askKey = false }, title = { Text("Clave de API") },
                     text = { Column { Text("Descarga la IA en el dispositivo desde Ajustes (sin internet, gratis) o pega una clave de Gemini (gratis en aistudio.google.com/apikey) o de Claude."); OutlinedTextField(k, { k = it }, singleLine = true, modifier = Modifier.padding(top = 8.dp)) } },
-                    confirmButton = { TextButton({ prefs.edit().putString("aiKey", k.trim()).apply(); askKey = false; runAi() }) { Text("Guardar") } },
+                    confirmButton = { TextButton({ com.arsnova.Secreto.poner(prefs.edit(), "aiKey", k.trim()).apply(); askKey = false; runAi() }) { Text("Guardar") } },
                     dismissButton = { TextButton({ askKey = false }) { Text("Cancelar") } })
             }
             aiOut?.let { out ->
@@ -382,7 +382,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             else view.replaceSelectionWithText(t)
                         } }, enabled = !converting) { Icon(ArsIcons.Text, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("A texto") }
                         TextButton({
-                            val key = prefs.getString("aiKey", null)
+                            val key = com.arsnova.Secreto.leer(prefs, "aiKey")
                             if (key.isNullOrBlank()) android.widget.Toast.makeText(ctx, "Para convertir escritura a fórmula hace falta una clave de Gemini (gratis) o de Claude: ponla en Ajustes o en la Vista LaTeX", android.widget.Toast.LENGTH_LONG).show()
                             else { converting = true; scope.launch {
                                 val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ai.latex(key, view.selectionPng()!!) } }
@@ -474,15 +474,15 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 val pg = nb.pages[pageIdx.coerceIn(0, nb.pages.size - 1)]
                 var tex by remember(pg) { mutableStateOf(pg.tex) }
                 val sheet = remember(pg) { InkR.render(pg, 0.7f).asImageBitmap() }
-                var hasKey by remember { mutableStateOf(!prefs.getString("aiKey", null).isNullOrBlank()) }
+                var hasKey by remember { mutableStateOf(!com.arsnova.Secreto.leer(prefs, "aiKey").isNullOrBlank()) }
                 fun convert() {
-                    val key = prefs.getString("aiKey", null) ?: return
+                    val key = com.arsnova.Secreto.leer(prefs, "aiKey") ?: return
                     texBusy = true; val bmp = InkR.render(pg, 0.85f); scope.launch {
                         val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val o = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o); bmp.recycle(); Ai.latexDoc(key, o.toByteArray()) } }
                         texBusy = false
                         r.onSuccess { tex = it; pg.tex = it; dirty++ }.onFailure { android.widget.Toast.makeText(ctx, "No se pudo convertir: ${it.message}", android.widget.Toast.LENGTH_LONG).show() } }
                 }
-                LatexPane(nb.title, sheet, tex, texBusy, hasKey, onKey = { k -> prefs.edit().putString("aiKey", k).apply(); hasKey = true; convert() },
+                LatexPane(nb.title, sheet, tex, texBusy, hasKey, onKey = { k -> com.arsnova.Secreto.poner(prefs.edit(), "aiKey", k).apply(); hasKey = true; convert() },
                     onTranscribe = { texBusy = true; scope.launch {
                         val l = com.arsnova.ink.Recognizer.lines(pg.strokes.toList()); texBusy = false
                         if (l.isEmpty()) android.widget.Toast.makeText(ctx, com.arsnova.ink.Recognizer.error?.let { "Reconocimiento no disponible: $it" } ?: "No encontré texto en esta página", android.widget.Toast.LENGTH_LONG).show()
