@@ -251,7 +251,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             DropdownMenuItem({ Text("Guardar zoom actual ($zoom %)") }, { zooms = (zooms + zoom).distinct(); prefs.edit().putString("zooms", zooms.joinToString(",")).apply(); zoomMenu = false }, leadingIcon = { Icon(ArsIcons.Star, null) })
                             DropdownMenuItem({ Text("Bloquear zoom") }, { zoomLock = !zoomLock; prefs.edit().putBoolean("zoomLock", zoomLock).apply() }, trailingIcon = { Checkbox(zoomLock, null) })
                         } }
-                    TextButton({ pages = true }) { Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
+                    TextButton({ pages = true }) { if (com.arsnova.fx.fxOn("nf_page")) com.arsnova.fx.NumeroFlowGrupo(pageIdx + 1, nb.pages.size, MaterialTheme.typography.labelLarge, sep = "/") else Text("${pageIdx + 1}/${nb.pages.size}", style = MaterialTheme.typography.labelLarge) }
                     IconButton({ menu = true }) { Icon(ArsIcons.MoreV, "Menú de la nota") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem({ Text("Añadir página") }, { nb.pages.add(pageIdx + 1, nb.pages[pageIdx].next()); view.pagesChanged(); view.scrollToPage(pageIdx + 1); dirty++; menu = false },
@@ -264,7 +264,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                             view.fit(); dirty++
                         }, leadingIcon = { Icon(ArsIcons.Grid, null) })
                         DropdownMenuItem({ Text("Solo lápiz (rechazo de palma)") }, { stylusOnly = !stylusOnly },
-                            leadingIcon = { Icon(ArsIcons.Pen, null) }, trailingIcon = { Checkbox(stylusOnly, null) })
+                            leadingIcon = { Icon(ArsIcons.Pen, null) }, trailingIcon = { if (com.arsnova.fx.fxOn("checkbox")) com.arsnova.fx.CasillaCoss(stylusOnly, color = Brand) else Checkbox(stylusOnly, null) })
                         DropdownMenuItem({ Text("Configurar doble toque del lápiz") }, { learning = true; menu = false },
                             leadingIcon = { Icon(ArsIcons.Edit, null) })
                         DropdownMenuItem({ Text("Ajustar a pantalla") }, { view.fit(); menu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
@@ -314,7 +314,7 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
             }
             aiOut?.let { out ->
                 AlertDialog({ aiOut = null }, title = { Text("Resumen y tarjetas") },
-                    text = { if (out == "…") LinearProgressIndicator(Modifier.fillMaxWidth()) else Text(out, Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) },
+                    text = { if (out == "…") ProgresoLinea(null, Modifier.fillMaxWidth()) else Text(out, Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) },
                     confirmButton = { if (out != "…" && !out.startsWith("Error") ) TextButton({
                         val p = Page(System.nanoTime(), Template.BLANK); p.items.add(Item(System.nanoTime(), 0, 80f, 80f, InkR.PAGE_W - 160f, text = out, size = 30f))
                         nb.pages.add(p); view.pagesChanged(); view.scrollToPage(nb.pages.size - 1); dirty++; aiOut = null }) { Text("Insertar como página") } },

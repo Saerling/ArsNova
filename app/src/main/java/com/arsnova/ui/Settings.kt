@@ -99,7 +99,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 ListItem({ Text(com.arsnova.data.LocalAi.NAME) },
                     supportingContent = { Column {
                         Text(if (have) "Descargado · funciona sin internet" else "≈547 MB · resúmenes y preguntas de estudio sin conexión")
-                        dl?.let { LinearProgressIndicator({ it }, Modifier.fillMaxWidth().padding(top = 6.dp)) } } },
+                        dl?.let { ProgresoLinea(it, Modifier.fillMaxWidth().padding(top = 6.dp)) } } },
                     trailingContent = {
                         if (have) TextButton({ com.arsnova.data.LocalAi.delete(ctx); have = false }) { Text("Borrar") }
                         else TextButton({ dl = 0f; scope.launch {
@@ -132,7 +132,7 @@ fun SettingsScreen(theme: Int, onTheme: (Int) -> Unit, onBack: () -> Unit) {
                 Header("Actualizaciones"); Group {
                 Toggle("Buscar al abrir", "Avisa cuando hay una versión nueva en GitHub", auto) { auto = it; p.edit().putBoolean("autoUpdate", it).apply() }
                 ListItem({ Text("Buscar actualización ahora") }, supportingContent = { Text("Versión instalada: ${Updater.current(ctx)}") },
-                    trailingContent = { if (checking) CircularProgressIndicator(Modifier.size(20.dp)) },
+                    trailingContent = { if (checking) { if (com.arsnova.fx.fxOn("spinner")) com.arsnova.fx.Girador(Modifier.size(22.dp), Ars.Text) else CircularProgressIndicator(Modifier.size(20.dp)) } },
                     modifier = Modifier.clickable { checking = true; scope.launch {
                         val r = withContext(Dispatchers.IO) { Updater.latest() }; checking = false
                         if (r != null && r.code > Updater.current(ctx)) upd = r

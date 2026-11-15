@@ -43,11 +43,12 @@ fun BibliotecaFxPantalla(items: List<FxItem>, onBack: () -> Unit, modifier: Modi
     var abierto by remember { mutableStateOf<String?>(null) }
     val filtrados = remember(q, items) { if (q.isBlank()) items else items.filter { it.nombre.contains(q, true) || it.uso.contains(q, true) || it.origen.contains(q, true) } }
     val acento = MaterialTheme.colorScheme.primary
+    DisposableEffect(abierto) { Fx.enPrevia = abierto; onDispose { Fx.enPrevia = null } }
     Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Text("‹", fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground) }
             Column(Modifier.weight(1f)) {
-                Text("Biblioteca de animaciones y funciones", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
+                Text("Biblioteca de animaciones y funciones", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, maxLines = 2)
                 Text("${Fx.count(items.map { it.id })} de ${items.size} activas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onBackground.copy(.6f))
             }
         }

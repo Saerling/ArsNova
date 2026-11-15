@@ -132,7 +132,7 @@ fun LibraryScreen(repo: Repo, onSettings: () -> Unit, onOpen: (String) -> Unit) 
     moving?.let { m -> AlertDialog({ moving = null }, title = { Text("Mover a carpeta") }, confirmButton = { TextButton({ moving = null }) { Text("Cerrar") } }, text = {
         Column { (listOf("") + folders).forEach { f -> Text(f.ifEmpty { "Sin carpeta" }, Modifier.fillMaxWidth().clickable {
             repo.setFolder(m.id, f); items = items.map { if (it.id == m.id) it.copy(folder = f) else it }; moving = null }.padding(12.dp)) } } }) }
-    if (importing) AlertDialog({}, confirmButton = {}, title = { Text("Importando PDF…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) })
+    if (importing) AlertDialog({}, confirmButton = {}, title = { if (com.arsnova.fx.fxOn("textshimmer")) com.arsnova.fx.TextoBrillo("Importando PDF…", MaterialTheme.typography.titleLarge, base = Ars.Muted, brillo = Ars.Text) else Text("Importando PDF…") }, text = { ProgresoLinea(null, Modifier.fillMaxWidth()) })
     if (creating) NewNotebookDialog({ creating = false }) { t, c, tpl, pat, pap, sp -> creating = false; onOpen(repo.create(t, c, tpl, pat, folder, pap, sp)) }
     renaming?.let { m ->
         var t by remember { mutableStateOf(m.title) }

@@ -188,7 +188,15 @@ object Ink {
                 rule.style = Paint.Style.FILL }
             Template.MM -> { val st = sp(10f); var i = 0; var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, if (i % 5 == 0) rule else dash); x += st; i++ }; i = 0; var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, if (i % 5 == 0) rule else dash); y += st; i++ } }
         }
+        // Biblioteca de animaciones: Fine Grain (opensourceui) — grano de papel en todas las hojas.
+        if (com.arsnova.fx.Fx.on("finegrain") || granoPrevia) {
+            val g = Paint(); val rnd = java.util.Random(7); val oscuro = darkP
+            for (n in 0 until 9000) { g.color = if (rnd.nextBoolean() == oscuro) 0x0F000000 else 0x14FFFFFF; c.drawCircle(rnd.nextFloat() * PAGE_W, rnd.nextFloat() * PAGE_H, 1.3f, g) }
+        }
     }
+
+    /** Solo para la vista previa de la biblioteca de animaciones: fuerza el grano sin tocar el ajuste. */
+    @Volatile var granoPrevia = false
 
     fun drawPage(c: Canvas, p: Page) { drawPaper(c, p); p.items.forEach { drawItem(c, it) }; p.strokes.forEach { drawStroke(c, it) } }
 

@@ -65,6 +65,8 @@ object Fx {
     }
     /** Fuera de Compose (getters, lógica). En pantallas usa [fxOn], que además respeta las vistas previas. */
     fun on(id: String): Boolean = mapa[id] == true
+    /** Efecto que se está previsualizando en la biblioteca: se ve en toda la app mientras su previa está abierta. */
+    var enPrevia by mutableStateOf<String?>(null)
     fun set(id: String, v: Boolean) { mapa[id] = v; prefs?.edit()?.putBoolean(id, v)?.apply() }
     fun setAll(ids: List<String>, v: Boolean) { ids.forEach { mapa[it] = v }; prefs?.edit()?.apply { ids.forEach { putBoolean(it, v) } }?.apply() }
     fun count(ids: List<String>) = ids.count { on(it) }
@@ -76,12 +78,12 @@ object Fx {
 /** Ids forzados a «encendido» dentro de una vista previa: así la previa muestra el componente real de la app con el efecto. */
 val LocalFxForzar = staticCompositionLocalOf { emptySet<String>() }
 
-@Composable fun fxOn(id: String): Boolean = Fx.on(id) || id in LocalFxForzar.current
+@Composable fun fxOn(id: String): Boolean = Fx.on(id) || id == Fx.enPrevia || id in LocalFxForzar.current
 
 @Composable fun FxForzar(id: String, content: @Composable () -> Unit) = CompositionLocalProvider(LocalFxForzar provides LocalFxForzar.current + id, content = content)
 
 /** Aplica [block] solo si el efecto [id] está activado (o forzado en una vista previa). */
-fun Modifier.fx(id: String, block: Modifier.() -> Modifier): Modifier = composed { if (Fx.on(id) || id in LocalFxForzar.current) Modifier.block() else Modifier }
+fun Modifier.fx(id: String, block: Modifier.() -> Modifier): Modifier = composed { if (Fx.on(id) || id == Fx.enPrevia || id in LocalFxForzar.current) Modifier.block() else Modifier }
 
 private val Acc = Color(0xFF7C9CFF)
 
@@ -374,6 +376,34 @@ fun CasillaCoss(marcada: Boolean, modifier: Modifier = Modifier, color: Color = 
     }
 }
 
+
+/** Checkbox de tres estados (coss ui): ✓ incluir, ✕ excluir, vacío ignorar. */
+@Composable
+fun CasillaTriCoss(estado: androidx.compose.ui.state.ToggleableState, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    when (estado) {
+        androidx.compose.ui.state.ToggleableState.On -> CasillaCoss(true, modifier, color)
+        androidx.compose.ui.state.ToggleableState.Off -> CasillaCoss(false, modifier, color)
+        else -> Canvas(modifier.size(22.dp)) {
+            drawRoundRect(Color(0xFFE5484D), cornerRadius = CornerRadius(6.dp.toPx()))
+            val a = size.width * .3f; val b = size.width * .7f
+            drawLine(Color.White, Offset(a, a), Offset(b, b), 2.dp.toPx(), StrokeCap.Round); drawLine(Color.White, Offset(b, a), Offset(a, b), 2.dp.toPx(), StrokeCap.Round)
+        }
+    }
+}
+
+/** Barra de progreso (coss ui) con degradado; sin [progreso] es indeterminada (un brillo que corre). */
+@Composable
+fun BarraProgresoCoss(progreso: Float?, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, pista: Color = color.copy(alpha = .18f)) {
+    val f by animateFloatAsState((progreso ?: 0f).coerceIn(0f, 1f), spring(stiffness = 300f), label = "pc")
+    val t by rememberInfiniteTransition(label = "pi").animateFloat(-.4f, 1.2f, infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing)), label = "pi")
+    Canvas(modifier.fillMaxWidth().height(4.dp)) {
+        val r = CornerRadius(size.height / 2)
+        drawRoundRect(pista, cornerRadius = r)
+        if (progreso != null) drawRoundRect(Brush.horizontalGradient(listOf(color.copy(alpha = .55f), color), 0f, size.width * f), size = Size(size.width * f, size.height), cornerRadius = r)
+        else drawRoundRect(Brush.horizontalGradient(listOf(Color.Transparent, color, Color.Transparent), size.width * t, size.width * (t + .4f)), Offset(size.width * t, 0f), Size(size.width * .4f, size.height), r)
+    }
+}
+
 /** Cuenta desde 0 hasta el número al aparecer (Magic UI Number Ticker). Devuelve el texto con el resto de caracteres intactos. */
 @Composable
 fun textoContando(texto: String): String {
@@ -503,7 +533,8 @@ fun TextoAnotado(texto: String, tipo: Anotacion, estilo: TextStyle, modifier: Mo
 fun TextoComic(texto: String, modifier: Modifier = Modifier, tam: TextUnit = 34.sp, color: Color = Color(0xFFFFD60A)) {
     val a = remember { Animatable(.6f) }; LaunchedEffect(texto) { a.animateTo(1f, spring(dampingRatio = .45f)) }
     Box(modifier.graphicsLayer { scaleX = a.value; scaleY = a.value; rotationZ = -3f }) {
-        Text(texto, Modifier.offset(3.dp, 3.dp), fontSize = tam, fontWeight = FontWeight.Black, color = Color.Black)
+        val sombra = if (color.luminance() > .5f) Color(0xFFE5484D) else Color.White
+        Text(texto, Modifier.offset(3.dp, 3.dp), fontSize = tam, fontWeight = FontWeight.Black, color = sombra)
         Text(texto, fontSize = tam, fontWeight = FontWeight.Black, style = TextStyle(drawStyle = Stroke(6f)), color = Color.Black)
         Text(texto, fontSize = tam, fontWeight = FontWeight.Black, color = color)
     }
@@ -702,7 +733,7 @@ fun SegmentadoDeslizante(opciones: List<String>, sel: Int, onSel: (Int) -> Unit,
     val fondo = LocalContentColor.current.copy(alpha = .08f)
     Box(modifier.clip(Pildora).background(fondo).padding(3.dp)) {
         Box(Modifier.offset { IntOffset(x.roundToInt(), 0) }.size(with(d) { w.toDp() }, 36.dp).clip(Pildora).background(color))
-        Row { opciones.forEachIndexed { i, o -> Box(Modifier.height(36.dp).onSizeChanged { s -> anchos = anchos.toMutableList().also { it[i] = s.width.toFloat() } }.clip(Pildora).clickable { onSel(i) }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { Text(o, color = if (i == sel) Color.White else Color.Unspecified, style = MaterialTheme.typography.labelLarge) } } }
+        Row { opciones.forEachIndexed { i, o -> Box(Modifier.height(36.dp).onSizeChanged { s -> anchos = anchos.toMutableList().also { it[i] = s.width.toFloat() } }.clip(Pildora).clickable { onSel(i) }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { Text(o, color = if (i == sel) contraste(color) else LocalContentColor.current, style = MaterialTheme.typography.labelLarge) } } }
     }
 }
 
@@ -784,9 +815,10 @@ fun TiraSemana(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier, co
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         for (i in 0 until 7) { val c = (hoy.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_MONTH, i - 6) }; val a = i == sel
             val bg by animateColorAsState(if (a) color else Color.Transparent, label = "bg$i")
+            val tinta = if (a) contraste(color) else LocalContentColor.current
             Column(Modifier.clip(RoundedCornerShape(16.dp)).background(bg).clickable { onSel(i) }.padding(horizontal = 10.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(dias[(c.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7], style = MaterialTheme.typography.labelSmall); Text("${c.get(java.util.Calendar.DAY_OF_MONTH)}", style = MaterialTheme.typography.titleMedium)
-                val n = conteo(i); Box(Modifier.size(5.dp).clip(CircleShape).background(if (n > 0) (if (a) Color.White else color) else Color.Transparent)) } }
+                Text(dias[(c.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7], style = MaterialTheme.typography.labelSmall, color = tinta.copy(alpha = .7f)); Text("${c.get(java.util.Calendar.DAY_OF_MONTH)}", style = MaterialTheme.typography.titleMedium, color = tinta)
+                val n = conteo(i); Box(Modifier.size(5.dp).clip(CircleShape).background(if (n > 0) (if (a) tinta else color) else Color.Transparent)) } }
     }
 }
 
@@ -798,8 +830,8 @@ fun RelojBateria(modifier: Modifier = Modifier, estilo: TextStyle = MaterialThem
     LaunchedEffect(Unit) { val f = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()); while (isActive) { hora = f.format(java.util.Date()); bat = (ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY); delay(30_000) } }
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(hora, style = estilo, color = color); Spacer(Modifier.width(8.dp))
-        Box(Modifier.size(20.dp, 10.dp).border(1.dp, color.copy(.7f), RoundedCornerShape(3.dp)).padding(1.5.dp)) { Box(Modifier.fillMaxHeight().fillMaxWidth(bat / 100f).clip(RoundedCornerShape(2.dp)).background(if (bat <= 15) Color(0xFFE5484D) else color)) }
-        Spacer(Modifier.width(4.dp)); Text("$bat%", style = estilo, color = color)
+        Box(Modifier.size(20.dp, 10.dp).border(1.dp, color.copy(.7f), RoundedCornerShape(3.dp)).padding(1.5.dp)) { Box(Modifier.fillMaxHeight().fillMaxWidth(bat.coerceIn(0, 100) / 100f).clip(RoundedCornerShape(2.dp)).background(if (bat <= 15) Color(0xFFE5484D) else color)) }
+        if (bat in 0..100) { Spacer(Modifier.width(4.dp)); Text("$bat%", style = estilo, color = color) }
     }
 }
 
@@ -1079,3 +1111,6 @@ fun TablaFx(cabecera: List<String>, filas: List<List<String>>, modifier: Modifie
 
 /** Fila con insignia (coss Badge) para "Nuevo" con brillo. */
 @Composable fun InsigniaBrillo(texto: String, color: Color = Acc) = Box(Modifier.clip(Pildora).background(color.copy(.18f)).padding(horizontal = 10.dp, vertical = 3.dp)) { TextoBrillo(texto, MaterialTheme.typography.labelSmall, base = color, brillo = Color.White) }
+
+/** Blanco o negro, el que se lea mejor sobre [fondo]. */
+fun contraste(fondo: Color): Color = if (fondo.luminance() > .55f) Color(0xFF111114) else Color.White

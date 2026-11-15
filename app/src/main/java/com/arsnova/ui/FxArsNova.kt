@@ -97,13 +97,17 @@ fun TemporizadorEditor() {
 }
 
 /** La hoja tal como la dibuja el editor, con la plantilla real. */
-@Composable private fun HojaPlantilla(t: Template) {
-    val bmp = remember(t) { com.arsnova.ink.Ink.paperPreview(t, -1, 0f, 351, 468).asImageBitmap() }
+@Composable private fun HojaPlantilla(t: Template, grano: Boolean = false) {
+    val bmp = remember(t, grano) {
+        com.arsnova.ink.Ink.granoPrevia = grano
+        val b = com.arsnova.ink.Ink.paperPreview(t, -1, 0f, 351, 468).asImageBitmap()
+        com.arsnova.ink.Ink.granoPrevia = false; b
+    }
     Image(bmp, null, Modifier.width(150.dp).aspectRatio(0.75f).clip(RoundedCornerShape(10.dp)))
 }
 
-val IdsFxArsNova = listOf("blurfade", "themetoggle", "noise", "ripple", "switch", "segmented", "dialogs", "tilt", "magiccard", "glare",
-    "hexpattern", "graphpaper", "nf_zoom", "nf_width", "timers", "audiorecorder", "onboarding")
+val IdsFxArsNova = listOf("blurfade", "themetoggle", "noise", "ripple", "switch", "checkbox", "segmented", "dialogs", "progress", "spinner", "textshimmer", "tilt", "magiccard", "glare",
+    "hexpattern", "graphpaper", "finegrain", "nf_zoom", "nf_width", "nf_page", "timers", "audiorecorder", "onboarding")
 
 /** El catálogo de ArsNova. Cada vista usa las piezas reales de la app. */
 fun catalogoArsNova(prefs: SharedPreferences): List<FxItem> {
@@ -120,15 +124,21 @@ fun catalogoArsNova(prefs: SharedPreferences): List<FxItem> {
             val r = rememberRevelar(); val sc = rememberCoroutineScope(); val bg = Ars.Bg
             Box(Modifier.fillMaxWidth().height(110.dp)) { CapaRevelar(r, Modifier.matchParentSize()); TextButton({ sc.launch { r.revelar(Offset(200f, 120f), if (Ars.dark) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Black) } }, Modifier.align(Alignment.Center)) { Text("Probar el revelado") } }
         },
-        i("noise", "Noise Texture", "Magic UI", "Grano fino en el vidrio de las barras del editor y la biblioteca") { Pill { IconButton({}) { androidx.compose.material3.Icon(ArsIcons.Pen, null) }; Text("Barra de vidrio", Modifier.padding(end = 14.dp)) } },
-        i("ripple", "Ripple Button", "Magic UI", "Onda desde el dedo en todos los botones") { TextButton({}) { Text("Tócame") } },
-        i("switch", "Switch", "coss ui", "Los interruptores de Ajustes con el estilo de coss") { var a by remember { mutableStateOf(true) }; Row(verticalAlignment = Alignment.CenterVertically) { Text("Solo lápiz", Modifier.weight(1f)); Switch(a, { a = it }) } },
+        i("noise", "Noise Texture", "Magic UI", "Grano fino en todo el vidrio: barras del editor, la biblioteca y las píldoras") { Pill { IconButton({}) { androidx.compose.material3.Icon(ArsIcons.Pen, null) }; Text("Barra de vidrio", Modifier.padding(end = 14.dp)) } },
+        i("ripple", "Ripple Button", "Magic UI", "Onda desde el dedo en todos los botones e íconos de la app") { TextButton({}) { Text("Tócame") } },
+        i("switch", "Switch", "coss ui", "Todos los interruptores (Ajustes, barra, lápices, tapa) con el estilo de coss") { var a by remember { mutableStateOf(true) }; Row(verticalAlignment = Alignment.CenterVertically) { Text("Solo lápiz", Modifier.weight(1f)); Switch(a, { a = it }) } },
         i("segmented", "Segmented Control + Animated Background", "coss ui", "Los selectores de Ajustes con indicador que se desliza") { var s by remember { mutableIntStateOf(1) }; CompositionLocalProvider(LocalContentColor provides Ars.Text) { if (fxOn("segmented")) SegmentadoDeslizante(listOf("Suave", "Normal", "Firme"), s, { s = it }, color = Brand) } },
         i("dialogs", "Dialogs 01–12", "blocks.so", "Todos los diálogos de la app con el estilo que elijas (12)") {
             var v by remember { mutableStateOf(false) }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Variantes("dialogs", (1..12).map { "Estilo %02d".format(it) }); TextButton({ v = true }) { Text("Abrir un diálogo de verdad") } }
             if (v) AlertDialog({ v = false }, { TextButton({ v = false }) { Text("Guardar") } }, dismissButton = { TextButton({ v = false }) { Text("Cancelar") } }, title = { Text("Renombrar") }, text = { Text("Termodinámica · Clase 4") })
         },
+        i("checkbox", "Checkbox", "coss ui", "Las casillas de los menús (p. ej. «Solo lápiz») con el estilo de coss") { var a by remember { mutableStateOf(true) }; Row(Modifier.bounceClick { a = !a }, verticalAlignment = Alignment.CenterVertically) { CasillaCoss(a, color = Brand); Text("  Solo lápiz (rechazo de palma)", color = Ars.Text) } },
+        i("progress", "Progress", "coss ui", "Las barras de progreso (descarga de la IA, importar PDF, resúmenes) con degradado") { var f by remember { mutableFloatStateOf(.3f) }; LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(600); f = (f + .12f) % 1f } }; Column(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { ProgresoLinea(f); ProgresoLinea(null) } },
+        i("spinner", "Spinner", "coss ui", "El indicador de «Buscar actualización» como girador") { Girador(Modifier.size(32.dp), Ars.Text) },
+        i("textshimmer", "Text Shimmer", "Motion Primitives", "«Importando PDF…» con un brillo que lo recorre") { TextoBrillo("Importando PDF…", MaterialTheme.typography.titleLarge, base = Ars.Muted, brillo = Ars.Text) },
+        i("finegrain", "Fine Grain", "opensourceui", "Grano de papel en todas las hojas de tus cuadernos") { HojaPlantilla(Template.LINED, grano = true) },
+        i("nf_page", "Número de página", "NumberFlow", "El «3/12» del editor rueda al cambiar de página") { var p by remember { mutableIntStateOf(3) }; TextButton({ p = p % 12 + 1 }) { NumeroFlowGrupo(p, 12, MaterialTheme.typography.labelLarge, sep = "/") } },
         i("tilt", "Tilt", "Motion Primitives", "Las tapas de los cuadernos se inclinan bajo el dedo") { Cuaderno() },
         i("magiccard", "Magic Card", "Magic UI", "Un foco de luz sigue al dedo sobre la tapa") { Cuaderno() },
         i("glare", "Glare Hover", "Magic UI", "Destello que cruza la tapa al tocarla") { Cuaderno() },
@@ -141,4 +151,12 @@ fun catalogoArsNova(prefs: SharedPreferences): List<FxItem> {
         i("onboarding", "Onboarding 01–07", "blocks.so", "Bienvenida de 3 pasos la próxima vez que abras ArsNova") { var v by remember { mutableStateOf(false) }; TextButton({ v = true }) { Text("Ver la bienvenida") }
             if (v) androidx.compose.ui.window.Dialog({ v = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) { BienvenidaArsNova { v = false } } },
     )
+}
+
+/** Barras de progreso (descarga de la IA, importar PDF, resumen): Material o, con «Progress», la de coss. */
+@Composable
+fun ProgresoLinea(progreso: Float?, modifier: Modifier = Modifier) {
+    if (fxOn("progress")) BarraProgresoCoss(progreso, modifier, Brand, Ars.PillFill)
+    else if (progreso != null) androidx.compose.material3.LinearProgressIndicator({ progreso }, modifier)
+    else androidx.compose.material3.LinearProgressIndicator(modifier)
 }
