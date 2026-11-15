@@ -45,7 +45,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.input:input-motionprediction:1.0.0-beta05")
     implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
