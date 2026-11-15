@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.arsnova.fx.Fx.init(this)
         enableEdgeToEdge()
         val repo = Repo(applicationContext)
         com.arsnova.ink.Ink.bgDir = repo.dir

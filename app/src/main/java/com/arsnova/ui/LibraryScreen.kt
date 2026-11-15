@@ -165,10 +165,11 @@ private fun NotebookCard(repo: Repo, m: NotebookMeta, modifier: Modifier) {
 }
 
 private val PaperColors = listOf(0xFFFFFFFF, 0xFFF3F2EE, 0xFFFBF3E2, 0xFFE4E4E6, 0xFF1C1C1E).map { it.toInt() }
-private val TemplateCats = listOf(
+private val TemplateCats get() = listOf(
     "Base" to listOf(Template.BLANK to "En blanco", Template.LINED_N to "Línea estrecha", Template.LINED to "Línea", Template.LINED_W to "Línea ancha",
         Template.GRID_S to "Mini cuadro", Template.GRID to "Cuadro", Template.GRID_L to "Cuadro grande", Template.DOTS to "Puntos"),
-    "Estudio" to listOf(Template.CORNELL to "Cornell", Template.MARGIN to "Con margen", Template.HANDWRITING to "Caligrafía"),
+    "Estudio" to listOf(Template.CORNELL to "Cornell", Template.MARGIN to "Con margen", Template.HANDWRITING to "Caligrafía") +
+        (if (com.arsnova.fx.Fx.on("hexpattern")) listOf(Template.HEX to "Hexagonal") else emptyList()) + (if (com.arsnova.fx.Fx.on("graphpaper")) listOf(Template.MM to "Milimetrado") else emptyList()),
     "Plan" to listOf(Template.TODO to "Tareas", Template.WEEKLY to "Semanal"),
     "Música" to listOf(Template.MUSIC to "Pentagrama"))
 

@@ -182,6 +182,11 @@ object Ink {
             Template.MUSIC -> { var y = 180f; while (y < PAGE_H - 120) { for (k in 0 until 5) c.drawLine(70f, y + k * 16f, PAGE_W - 70f, y + k * 16f, rule); y += 150f } }
             Template.HANDWRITING -> { val st = sp(36f); var y = 180f; while (y < PAGE_H - 120) { c.drawLine(70f, y, PAGE_W - 70f, y, rule); c.drawLine(70f, y + st, PAGE_W - 70f, y + st, dash)
                 c.drawLine(70f, y + 2 * st, PAGE_W - 70f, y + 2 * st, rule); y += 3 * st + 40f } }
+            // Biblioteca de animaciones: Hexagon Pattern (Magic UI) y Graph Paper (opensourceui).
+            Template.HEX -> { val r = sp(34f); val w = Math.sqrt(3.0).toFloat() * r; var fila = 0; var y = 0f; val path = android.graphics.Path(); rule.style = Paint.Style.STROKE
+                while (y < PAGE_H + r) { var x = if (fila % 2 == 0) 0f else w / 2; while (x < PAGE_W + w) { path.reset(); for (i in 0..5) { val a = Math.toRadians((60 * i - 30).toDouble()); val px = x + r * Math.cos(a).toFloat(); val py = y + r * Math.sin(a).toFloat(); if (i == 0) path.moveTo(px, py) else path.lineTo(px, py) }; path.close(); c.drawPath(path, rule); x += w }; y += r * 1.5f; fila++ }
+                rule.style = Paint.Style.FILL }
+            Template.MM -> { val st = sp(10f); var i = 0; var x = 0f; while (x <= PAGE_W) { c.drawLine(x, 0f, x, PAGE_H, if (i % 5 == 0) rule else dash); x += st; i++ }; i = 0; var y = 0f; while (y <= PAGE_H) { c.drawLine(0f, y, PAGE_W, y, if (i % 5 == 0) rule else dash); y += st; i++ } }
         }
     }
 

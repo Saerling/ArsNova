@@ -238,9 +238,10 @@ fun EditorScreen(repo: Repo, id: String, onBack: () -> Unit) {
                 actions = { Pill(Modifier.padding(end = 8.dp)) {
                     IconButton({ if (audio.recording) { audio.stopRec(); dirty++ } else micPerm.launch(android.Manifest.permission.RECORD_AUDIO) }) {
                         Icon(if (audio.recording) ArsIcons.Stop else ArsIcons.Mic, "Grabar", tint = if (audio.recording) Brand else LocalContentColor.current) }
+                    if (audio.recording && com.arsnova.fx.Fx.on("audiorecorder")) com.arsnova.fx.OndaAudio(true, Modifier.align(Alignment.CenterVertically).size(70.dp, 24.dp), Brand)
                     if (nb.recs.isNotEmpty()) IconButton({ audio.open = !audio.open }) { Icon(ArsIcons.Headphones, "Reproducir") }
                     IconButton({ finding = !finding }) { Icon(ArsIcons.Search, "Buscar en la nota") }
-                    Box { TextButton({ zoomMenu = true }) { Text("$zoom %", style = MaterialTheme.typography.labelLarge) }
+                    Box { TextButton({ zoomMenu = true }) { if (com.arsnova.fx.Fx.on("nf_zoom")) com.arsnova.fx.NumeroFlow(zoom, MaterialTheme.typography.labelLarge, sufijo = " %") else Text("$zoom %", style = MaterialTheme.typography.labelLarge) }
                         DropdownMenu(zoomMenu, { zoomMenu = false }) {
                             DropdownMenuItem({ Text("Ajustar al ancho") }, { view.zoomTo(100); zoomMenu = false }, leadingIcon = { Icon(ArsIcons.Fit, null) })
                             (listOf(150, 200, 300) + zooms).distinct().sorted().forEach { z ->

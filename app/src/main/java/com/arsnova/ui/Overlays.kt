@@ -107,8 +107,10 @@ fun ColorPopover(initial: Int, swatches: List<Int>, onPick: (Int) -> Unit, onSav
     }
 }
 
-val TemplateChoices = listOf(Template.BLANK to "Ninguna", Template.LINED_N to "Líneas estrechas", Template.LINED to "Líneas", Template.LINED_W to "Líneas anchas",
-    Template.GRID_S to "Cuadrícula pequeña", Template.GRID to "Cuadrícula", Template.GRID_L to "Cuadrícula grande", Template.DOTS to "Puntos")
+val TemplateChoices get() = listOf(Template.BLANK to "Ninguna", Template.LINED_N to "Líneas estrechas", Template.LINED to "Líneas", Template.LINED_W to "Líneas anchas",
+    Template.GRID_S to "Cuadrícula pequeña", Template.GRID to "Cuadrícula", Template.GRID_L to "Cuadrícula grande", Template.DOTS to "Puntos") +
+    (if (com.arsnova.fx.Fx.on("hexpattern")) listOf(Template.HEX to "Hexagonal") else emptyList()) +
+    (if (com.arsnova.fx.Fx.on("graphpaper")) listOf(Template.MM to "Milimetrado") else emptyList())
 
 /** Hoja "Líneas y cuadrículas" (iPadOS). */
 @Composable

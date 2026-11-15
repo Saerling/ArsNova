@@ -15,7 +15,7 @@ import java.nio.ByteOrder
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LASSO, TEXT, TAPE, LASER }
 
-@Serializable enum class Template { BLANK, LINED, GRID, DOTS, LINED_N, LINED_W, GRID_S, GRID_L, MARGIN, CORNELL, TODO, WEEKLY, MUSIC, HANDWRITING }
+@Serializable enum class Template { BLANK, LINED, GRID, DOTS, LINED_N, LINED_W, GRID_S, GRID_L, MARGIN, CORNELL, TODO, WEEKLY, MUSIC, HANDWRITING, HEX, MM }
 
 /** Puntos empaquetados x,y,presión -> base64 binario (≈4x más compacto que JSON numérico). */
 object PtsSerializer : KSerializer<FloatArray> {
